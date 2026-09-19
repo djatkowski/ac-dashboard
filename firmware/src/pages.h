@@ -1,5 +1,5 @@
-// Ekrany dashboardu. Kazdy trzyma wlasne sprite'y i sam decyduje,
-// ktory kafelek wymaga odrysowania.
+// Dashboard screens. Each owns its sprites and decides for itself which
+// tiles need repainting.
 #pragma once
 
 #include "telemetry.h"
@@ -9,8 +9,8 @@ class Page {
  public:
   virtual ~Page() {}
   virtual const char* name() const = 0;
-  virtual void begin() = 0;                    // alokacja sprite'ow (raz)
-  virtual void enter() = 0;                    // wejscie: wymus pelne odrysowanie
+  virtual void begin() = 0;                    // allocate sprites (once)
+  virtual void enter() = 0;                    // on entry: force a full repaint
   virtual void update(const DashState& st) = 0;
 };
 

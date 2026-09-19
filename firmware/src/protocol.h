@@ -1,12 +1,11 @@
-// Format pakietu telemetrii PC -> Tab5 (transport: USB CDC).
-// LUSTRO pliku pc-app/acbridge/protocol.py - kazda zmiana musi trafic tam i tu.
+// Telemetry packet format PC -> Tab5 (transport: USB CDC).
+// MIRROR of pc-app/acbridge/protocol.py - every change must land in both.
 //
-// Ramka na drucie:
-//     [4B magic "ACT5"] [264B reszta pakietu] [2B CRC16-CCITT] = 270 B
+// Wire frame:
+//     [4B magic "ACT5"] [264B rest of packet] [2B CRC16-CCITT] = 270 B
 //
-// Strumien bajtow nie ma granic pakietow, wiec magic sluzy za slowo
-// synchronizujace, a CRC odsiewa przypadkowe bajty danych wygladajace
-// jak magic.
+// A byte stream has no packet boundaries, so the magic doubles as a sync
+// word and the CRC rejects random payload bytes that look like the magic.
 #pragma once
 
 #include <stddef.h>
@@ -16,11 +15,11 @@ static const uint32_t AC_MAGIC = 0x35544341UL;  // 'A','C','T','5' little-endian
 static const uint8_t AC_MAGIC_BYTES[4] = {'A', 'C', 'T', '5'};
 static const uint8_t AC_PROTO_VERSION = 2;
 
-// Wypisujemy to w petli, dopoki nie ma telemetrii - po tym PC rozpoznaje,
-// ze na tym porcie siedzi dashboard.
+// We print this in a loop until telemetry arrives - that is how the PC
+// recognises that a dashboard is sitting on this port.
 #define AC_HELLO_LINE "ACT5HELLO\n"
 
-// flagi
+// flags
 enum : uint8_t {
   F_LIVE = 1 << 0,
   F_IN_PIT = 1 << 1,
@@ -32,7 +31,7 @@ enum : uint8_t {
   F_ENGINE_LIMITER = 1 << 7,
 };
 
-// Indeksy kol: 0 = FL, 1 = FR, 2 = RL, 3 = RR
+// Wheel indices: 0 = FL, 1 = FR, 2 = RL, 3 = RR
 enum { FL = 0, FR = 1, RL = 2, RR = 3 };
 
 #pragma pack(push, 1)
@@ -54,12 +53,12 @@ struct AcPacket {
 
   float throttle;  // 0..1
   float brake;     // 0..1
-  float clutch;    // 0..1 (1 = wcisniete)
+  float clutch;    // 0..1 (1 = pressed)
   float steer;     // -1..1
   float fuel_l;
 
-  float drift_angle;  // stopnie, + = tyl ucieka w prawo
-  float yaw_rate;     // stopnie/s
+  float drift_angle;  // degrees, + = rear stepping out to the right
+  float yaw_rate;     // degrees/s
   float g_lat;
   float g_lon;
   float g_vert;
@@ -96,11 +95,11 @@ static const size_t AC_PACKET_SIZE = 268;
 static const size_t AC_CRC_SIZE = 2;
 static const size_t AC_FRAME_SIZE = AC_PACKET_SIZE + AC_CRC_SIZE;  // 270
 
-static_assert(sizeof(AcPacket) == AC_PACKET_SIZE, "AcPacket rozjechal sie z protocol.py");
+static_assert(sizeof(AcPacket) == AC_PACKET_SIZE, "AcPacket drifted out of sync with protocol.py");
 
-// CRC16-CCITT, wielomian 0x1021, init 0xFFFF.
-// Ten sam algorytm co crc16() w pc-app/acbridge/protocol.py.
-// Wartosc kontrolna dla "123456789" to 0x29B1.
+// CRC16-CCITT, polynomial 0x1021, init 0xFFFF.
+// Same algorithm as crc16() in pc-app/acbridge/protocol.py.
+// The check value for "123456789" is 0x29B1.
 inline uint16_t ac_crc16(const uint8_t* data, size_t len) {
   uint16_t crc = 0xFFFF;
   for (size_t i = 0; i < len; i++) {

@@ -1,11 +1,11 @@
-// Ekran DRIFT: kat poslizgu nadwozia, predkosc obrotu, kontra, poslizg opon.
+// DRIFT screen: body slip angle, yaw rate, countersteer, tyre slip.
 //
-// Konwencja znakow (ustalona w pc-app/acbridge/shared_memory.py):
-//   drift_angle > 0  -> wektor predkosci ucieka w PRAWO wzgledem osi auta,
-//                       czyli tyl wyszedl w prawo, a nos patrzy w lewo.
-//   steer > 0        -> kierownica skrecona w prawo.
-// Lapanie poslizgu = skret w strone poslizgu, wiec KONTRA jest prawidlowa,
-// gdy znak kierownicy zgadza sie ze znakiem kata.
+// Sign convention (set in pc-app/acbridge/shared_memory.py):
+//   drift_angle > 0  -> the velocity vector points RIGHT of the car's axis,
+//                       i.e. the rear stepped out right and the nose points left.
+//   steer > 0        -> steering wheel turned right.
+// Catching a slide means steering into it, so the countersteer is correct
+// when the sign of the steering matches the sign of the angle.
 #include <Arduino.h>
 #include <math.h>
 
@@ -14,7 +14,7 @@
 
 namespace {
 
-constexpr float kGaugeSpan = 70.0f;  // stopni na kazda strone
+constexpr float kGaugeSpan = 70.0f;  // degrees to each side
 
 class DriftPage : public Page {
  public:
@@ -52,13 +52,13 @@ class DriftPage : public Page {
   }
 
  private:
-  // --- glowny wskaznik kata --------------------------------------------------
+  // --- main angle gauge ------------------------------------------------------
   void drawGauge(const DashState& st) {
     if (!ui::changed(c_angle_, st.drift_smooth, 0.15f)) return;
 
     Panel& p = gauge_;
     M5Canvas& c = p.c();
-    p.tile("KAT POSLIZGU");
+    p.tile("SLIP ANGLE");
 
     const int cx = p.w() / 2;
     const int cy = 310;
@@ -67,8 +67,8 @@ class DriftPage : public Page {
     const float angle = st.drift_smooth;
     const float clamped = fmaxf(-kGaugeSpan, fminf(kGaugeSpan, angle));
 
-    // Luk skladamy z segmentow po 5 stopni. Zapalone sa te miedzy zerem
-    // a biezacym katem, wiec od razu widac strone i wielkosc poslizgu.
+    // The arc is built from 5-degree segments. The ones between zero and the
+    // current angle light up, so the side and size of the slide read instantly.
     constexpr float kStep = 5.0f;
     for (float a = -kGaugeSpan; a < kGaugeSpan - 0.1f; a += kStep) {
       const float mid = a + kStep * 0.5f;
@@ -76,7 +76,7 @@ class DriftPage : public Page {
                                          : (mid < 0.0f && mid >= clamped);
       uint16_t color = theme::PANEL_HI;
       if (lit) {
-        // Zielony do ~25 stopni, potem zolty, czerwony blisko wykretu.
+        // Green to ~25 degrees, then yellow, red close to a spin.
         const float t = fabsf(mid) / kGaugeSpan;
         color = t < 0.35f ? theme::GREEN
                           : (t < 0.65f ? theme::lerp565(theme::GREEN, theme::YELLOW,
@@ -87,21 +87,21 @@ class DriftPage : public Page {
       ui::arcSegment(c, cx, cy, r0, r1, a + 0.7f, a + kStep - 0.7f, color);
     }
 
-    // Znacznik szczytu z ostatniego poslizgu.
+    // Peak marker from the current slide.
     if (fabsf(st.peak_angle) > 6.0f) {
       const float pk = fmaxf(-kGaugeSpan, fminf(kGaugeSpan, st.peak_angle));
       ui::arcSegment(c, cx, cy, r0 - 12, r1 + 8, pk - 1.2f, pk + 1.2f, theme::MAGENTA);
     }
 
-    // Kreska zera na gorze.
+    // Zero tick at the top.
     ui::arcSegment(c, cx, cy, r0 - 10, r1 + 6, -0.8f, 0.8f, theme::TEXT_DIM);
 
-    // Wskazowka.
+    // Needle.
     const float rad = clamped * (float)M_PI / 180.0f;
     c.drawLine(cx, cy, cx + (int)(r0 * sinf(rad)), cy - (int)(r0 * cosf(rad)), theme::TEXT);
     c.fillCircle(cx, cy, 6, theme::TEXT);
 
-    // Wartosc liczbowo w srodku luku.
+    // The value as a number inside the arc.
     char buf[12];
     snprintf(buf, sizeof(buf), "%d", (int)lroundf(fabsf(angle)));
     c.setFont(&fonts::DejaVu72);
@@ -114,11 +114,11 @@ class DriftPage : public Page {
     c.setTextSize(1.0f);
     c.setTextDatum(textdatum_t::middle_center);
     c.setTextColor(theme::TEXT_DIM, theme::PANEL);
-    c.drawString("stopni", cx, cy - 14);
+    c.drawString("degrees", cx, cy - 14);
 
-    // Strzalka strony poslizgu - szybciej czytelna niz znak liczby.
+    // Which way the rear went - faster to read than the sign of a number.
     if (fabsf(angle) > 3.0f) {
-      const char* side = angle > 0 ? "TYL W PRAWO" : "TYL W LEWO";
+      const char* side = angle > 0 ? "REAR OUT RIGHT" : "REAR OUT LEFT";
       c.setFont(&fonts::DejaVu24);
       c.setTextDatum(textdatum_t::middle_center);
       c.setTextColor(angle > 0 ? theme::ORANGE : theme::ACCENT, theme::PANEL);
@@ -126,7 +126,7 @@ class DriftPage : public Page {
     }
 
     if (fabsf(st.peak_angle) > 6.0f) {
-      snprintf(buf, sizeof(buf), "szczyt %d", (int)lroundf(fabsf(st.peak_angle)));
+      snprintf(buf, sizeof(buf), "peak %d", (int)lroundf(fabsf(st.peak_angle)));
       c.setFont(&fonts::DejaVu18);
       c.setTextDatum(textdatum_t::middle_center);
       c.setTextColor(theme::MAGENTA, theme::PANEL);
@@ -135,18 +135,18 @@ class DriftPage : public Page {
     p.push();
   }
 
-  // --- historia kata ---------------------------------------------------------
+  // --- angle history ---------------------------------------------------------
   void drawTrace(const DashState& st) {
     Panel& p = trace_;
     M5Canvas& c = p.c();
-    p.tile("HISTORIA (ok. 5 s)");
+    p.tile("HISTORY (~5 s)");
 
     const int x0 = 14, y0 = 40;
     const int w = p.w() - 28, h = p.h() - 54;
     const int mid = y0 + h / 2;
     const float scale = (h / 2.0f) / kGaugeSpan;
 
-    // Siatka: zero grubsze, +-30 stopni cienko.
+    // Grid: zero heavier, +-30 degrees thin.
     for (int g = -60; g <= 60; g += 30) {
       if (g == 0) continue;
       const int y = mid - (int)(g * scale);
@@ -157,7 +157,7 @@ class DriftPage : public Page {
     const float dx = (float)w / (DashState::TRACE_LEN - 1);
     int prev_x = x0, prev_y = mid;
     for (int i = 0; i < DashState::TRACE_LEN; i++) {
-      // Czytamy od najstarszej probki: head+1 to najstarsza w buforze cyklicznym.
+      // Read oldest first: head+1 is the oldest entry in the ring buffer.
       const int idx = (st.trace_head + 1 + i) % DashState::TRACE_LEN;
       const float v = fmaxf(-kGaugeSpan, fminf(kGaugeSpan, st.trace[idx]));
       const int x = x0 + (int)(i * dx);
@@ -166,7 +166,7 @@ class DriftPage : public Page {
         const uint16_t col = fabsf(v) > 40.0f ? theme::RED
                                               : (fabsf(v) > 20.0f ? theme::YELLOW : theme::GREEN);
         c.drawLine(prev_x, prev_y, x, y, col);
-        c.drawLine(prev_x, prev_y + 1, x, y + 1, col);  // pogrubienie
+        c.drawLine(prev_x, prev_y + 1, x, y + 1, col);  // thicken the line
       }
       prev_x = x;
       prev_y = y;
@@ -174,7 +174,7 @@ class DriftPage : public Page {
     p.push();
   }
 
-  // --- predkosc i bieg -------------------------------------------------------
+  // --- speed and gear --------------------------------------------------------
   void drawHead(const DashState& st) {
     const int32_t gear = st.game_live ? st.p.gear : -2;
     const bool dirty = ui::changed(c_speed_, st.speed_smooth, 0.5f) |
@@ -194,7 +194,7 @@ class DriftPage : public Page {
     c.drawString(buf, 18, 72);
     ui::label(c, "km/h", 18, 18);
 
-    ui::label(c, "BIEG", p.w() - 86, 18);
+    ui::label(c, "GEAR", p.w() - 86, 18);
     c.setFont(&fonts::DejaVu56);
     c.setTextDatum(textdatum_t::middle_right);
     c.setTextColor(theme::ACCENT, theme::PANEL);
@@ -202,7 +202,7 @@ class DriftPage : public Page {
     p.push();
   }
 
-  // --- kierownica i kontra ---------------------------------------------------
+  // --- steering and countersteer ---------------------------------------------
   void drawSteer(const DashState& st) {
     const bool dirty = ui::changed(c_steer_, st.p.steer, 0.008f) |
                        ui::changed(c_steer_angle_, st.drift_smooth, 0.3f);
@@ -212,14 +212,14 @@ class DriftPage : public Page {
     M5Canvas& c = p.c();
     p.tile(nullptr);
 
-    ui::label(c, "KIEROWNICA", 16, 14);
+    ui::label(c, "STEERING", 16, 14);
     ui::centerBar(c, 16, 46, p.w() - 32, 26, st.p.steer, theme::ACCENT);
 
-    // Kontra jest prawidlowa, gdy skrecamy w strone poslizgu.
+    // The countersteer is right when we steer into the slide.
     const float angle = st.drift_smooth;
     const bool sliding = fabsf(angle) > 8.0f;
     const bool matching = (angle > 0.0f) == (st.p.steer > 0.0f);
-    const char* text = !sliding ? "-" : (matching ? "KONTRA OK" : "W POSLIZG!");
+    const char* text = !sliding ? "-" : (matching ? "COUNTER OK" : "INTO SLIDE!");
     const uint16_t color =
         !sliding ? theme::TEXT_DIM : (matching ? theme::GREEN : theme::RED);
 
@@ -231,7 +231,7 @@ class DriftPage : public Page {
     p.push();
   }
 
-  // --- predkosc obrotu -------------------------------------------------------
+  // --- yaw rate --------------------------------------------------------------
   void drawYaw(const DashState& st) {
     if (!ui::changed(c_yaw_, st.yaw_smooth, 0.4f)) return;
 
@@ -239,7 +239,7 @@ class DriftPage : public Page {
     M5Canvas& c = p.c();
     p.tile(nullptr);
 
-    ui::label(c, "OBROT (stopni/s)", 16, 14);
+    ui::label(c, "YAW RATE (deg/s)", 16, 14);
     const float norm = fmaxf(-1.0f, fminf(1.0f, st.yaw_smooth / 120.0f));
     ui::centerBar(c, 16, 46, p.w() - 32, 26, norm, theme::YELLOW);
 
@@ -253,7 +253,7 @@ class DriftPage : public Page {
     p.push();
   }
 
-  // --- kula przeciazen -------------------------------------------------------
+  // --- g-force ball ----------------------------------------------------------
   void drawGBall(const DashState& st) {
     const bool dirty = ui::changed(c_gx_, st.p.g_lat, 0.02f) |
                        ui::changed(c_gy_, st.p.g_lon, 0.02f);
@@ -264,7 +264,7 @@ class DriftPage : public Page {
     p.tile(nullptr);
 
     const int cx = p.w() / 2, cy = p.h() / 2 + 8;
-    const float scale = 52.0f;  // pikseli na 1 g
+    const float scale = 52.0f;  // pixels per 1 g
 
     for (int g = 1; g <= 2; g++) {
       c.drawCircle(cx, cy, (int)(g * scale), theme::LINE);
@@ -273,7 +273,7 @@ class DriftPage : public Page {
     c.drawFastVLine(cx, cy - 100, 200, theme::LINE);
     ui::label(c, "G", 16, 8);
 
-    // Hamowanie (g_lon < 0) wypycha kropke do gory - jak w realnym akcelerometrze.
+    // Braking (g_lon < 0) pushes the dot upwards, like a real accelerometer.
     int dx = (int)(st.p.g_lat * scale);
     int dy = (int)(st.p.g_lon * scale);
     const int lim = 104;
@@ -295,10 +295,10 @@ class DriftPage : public Page {
     p.push();
   }
 
-  // --- opony -----------------------------------------------------------------
+  // --- tyres -----------------------------------------------------------------
   void drawTyres(const DashState& st) {
-    // Klucz zmiany: temperatury i poslizgi zaokraglone, zeby nie odrysowywac
-    // kafelka przy kazdym drgnieciu ostatniej cyfry.
+    // Change key: temperatures and slips are rounded so the tile does not
+    // repaint on every twitch of the last digit.
     int32_t key = 0;
     for (int i = 0; i < 4; i++) {
       key = key * 131 + (int32_t)st.p.tyre_temp[i];
@@ -308,9 +308,9 @@ class DriftPage : public Page {
 
     Panel& p = tyres_;
     M5Canvas& c = p.c();
-    p.tile("OPONY");
+    p.tile("TYRES");
 
-    static const char* kNames[4] = {"PL", "PP", "TL", "TP"};  // przod/tyl lewy/prawy
+    static const char* kNames[4] = {"FL", "FR", "RL", "RR"};  // front/rear left/right
     const int cellW = (p.w() - 42) / 2;
     const int cellH = (p.h() - 76) / 2;
 
@@ -322,7 +322,7 @@ class DriftPage : public Page {
       c.fillRoundRect(x, y, cellW, cellH, 8, theme::PANEL_HI);
       c.drawRoundRect(x, y, cellW, cellH, 8, theme::LINE);
 
-      // Pasek temperatury po lewej krawedzi kafelka.
+      // Temperature strip down the left edge of the tile.
       const uint16_t tc = ui::tyreColor(st.p.tyre_temp[i]);
       c.fillRoundRect(x + 6, y + 6, 10, cellH - 12, 5, tc);
 
@@ -336,7 +336,7 @@ class DriftPage : public Page {
       c.setTextColor(tc, theme::PANEL_HI);
       c.drawString(buf, x + cellW - 14, y + 26);
 
-      // Poslizg - dla driftu wazniejszy niz cokolwiek innego na tym kafelku.
+      // Slip - for drifting this matters more than anything else here.
       const float slip = fminf(1.0f, st.p.wheel_slip[i]);
       ui::bar(c, x + 24, y + cellH - 26, cellW - 40, 12, slip,
               slip > 0.6f ? theme::RED : (slip > 0.3f ? theme::YELLOW : theme::GREEN),
@@ -351,7 +351,7 @@ class DriftPage : public Page {
     p.push();
   }
 
-  // --- przyczepnosc i pedaly -------------------------------------------------
+  // --- grip and pedals -------------------------------------------------------
   void drawGrip(const DashState& st) {
     const float key = st.p.surface_grip + st.p.throttle * 2.0f + st.p.brake * 4.0f +
                       st.p.tyres_out * 8.0f;
@@ -361,12 +361,12 @@ class DriftPage : public Page {
     M5Canvas& c = p.c();
     p.tile(nullptr);
 
-    ui::label(c, "GAZ", 16, 14);
+    ui::label(c, "THR", 16, 14);
     ui::bar(c, 90, 16, p.w() - 110, 22, st.p.throttle, theme::GREEN);
-    ui::label(c, "HAM", 16, 52);
+    ui::label(c, "BRK", 16, 52);
     ui::bar(c, 90, 54, p.w() - 110, 22, st.p.brake, theme::RED);
 
-    ui::label(c, "PRZYCZEPNOSC", 16, 96);
+    ui::label(c, "GRIP", 16, 96);
     ui::bar(c, 16, 122, p.w() - 32, 20, st.p.surface_grip, theme::ACCENT);
 
     char buf[32];
@@ -376,16 +376,16 @@ class DriftPage : public Page {
     c.setTextColor(theme::ACCENT, theme::PANEL);
     c.drawString(buf, p.w() - 16, 94);
 
-    // Kola poza torem - przy driftcie latwo zahaczyc o trawe.
+    // Wheels off track - easy to clip the grass while drifting.
     if (st.p.tyres_out > 0) {
       c.fillRoundRect(16, 156, p.w() - 32, 50, 8, theme::ORANGE);
-      snprintf(buf, sizeof(buf), "KOLA POZA TOREM: %d", st.p.tyres_out);
+      snprintf(buf, sizeof(buf), "WHEELS OFF TRACK: %d", st.p.tyres_out);
       c.setFont(&fonts::DejaVu24);
       c.setTextDatum(textdatum_t::middle_center);
       c.setTextColor(theme::BG, theme::ORANGE);
       c.drawString(buf, p.w() / 2, 181);
     } else {
-      snprintf(buf, sizeof(buf), "powietrze %d C   tor %d C", (int)lroundf(st.p.air_temp),
+      snprintf(buf, sizeof(buf), "air %d C   track %d C", (int)lroundf(st.p.air_temp),
                (int)lroundf(st.p.road_temp));
       c.setFont(&fonts::DejaVu18);
       c.setTextDatum(textdatum_t::middle_center);

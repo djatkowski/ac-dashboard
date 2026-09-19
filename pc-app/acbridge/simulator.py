@@ -1,8 +1,8 @@
-"""Generator sztucznej telemetrii (tryb --demo).
+"""Synthetic telemetry generator (--demo mode).
 
-Sluzy do dopiecia UI na Tab5 bez odpalania gry - takze z Maca/Linuksa.
-Symuluje auto jezdzace w kolko i wpadajace cyklicznie w dluzszy drift,
-zeby bylo widac cala skale wskaznikow.
+Lets you polish the Tab5 UI without launching the game - including from
+macOS/Linux. Simulates a car lapping and periodically falling into a long
+drift, so the full range of every gauge gets exercised.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class Simulator:
         f = Frame()
         f.flags = F_LIVE
 
-        # 24-sekundowy cykl: prosta -> hamowanie -> drift -> wyjscie
+        # 24-second cycle: straight -> braking -> drift -> exit
         phase = (t % 24.0) / 24.0
         drift_env = max(0.0, math.sin(phase * math.pi * 2 - 0.6))  # 0..1
 

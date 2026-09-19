@@ -1,29 +1,29 @@
 @echo off
-REM Budowanie ac_bridge.exe na Windows. Wymaga tylko Pythona 3.9+.
-REM Uruchom dwuklikiem albo z wiersza polecen w tym katalogu.
+REM Builds ac_bridge.exe on Windows. Needs nothing but Python 3.9+.
+REM Double-click it, or run it from a command prompt in this directory.
 
 setlocal
 cd /d "%~dp0"
 
-echo === Instalacja zaleznosci ===
+echo === Installing dependencies ===
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt pyinstaller
 if errorlevel 1 goto :error
 
 echo.
-echo === Budowanie ===
+echo === Building ===
 python -m PyInstaller --clean --noconfirm ac_bridge.spec
 if errorlevel 1 goto :error
 
 echo.
-echo === Gotowe ===
-echo Plik: %~dp0dist\ac_bridge.exe
-echo Skopiuj go gdziekolwiek i uruchom - nie wymaga Pythona.
+echo === Done ===
+echo File: %~dp0dist\ac_bridge.exe
+echo Copy it anywhere and run it - no Python required.
 goto :end
 
 :error
 echo.
-echo BLAD budowania. Sprawdz komunikaty powyzej.
+echo BUILD FAILED. Check the messages above.
 exit /b 1
 
 :end

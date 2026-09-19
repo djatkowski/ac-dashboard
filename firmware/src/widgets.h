@@ -1,6 +1,6 @@
-// Male cegielki UI. Kazdy Panel to sprite w PSRAM, przerysowywany tylko
-// wtedy, gdy jego dane sie zmienily - przy 1280x720 przerysowywanie calego
-// ekranu co klatke byloby marnotrawstwem pasma do framebufora.
+// Small UI building blocks. Every Panel is a PSRAM sprite redrawn only when
+// its data actually changed - at 1280x720, repainting the whole screen every
+// frame would waste framebuffer bandwidth on pixels that did not move.
 #pragma once
 
 #include <M5Unified.h>
@@ -17,7 +17,7 @@ class Panel {
   int h() const { return h_; }
   bool ready() const { return ready_; }
 
-  // Tlo kafelka z ramka i opcjonalnym tytulem w lewym gornym rogu.
+  // Tile background with a border and an optional title in the top-left.
   void tile(const char* title = nullptr, uint16_t bg = theme::PANEL);
 
  private:
@@ -28,30 +28,30 @@ class Panel {
 
 namespace ui {
 
-// Zwraca true i aktualizuje cache, jesli wartosc zmienila sie istotnie.
+// Returns true and updates the cache if the value changed meaningfully.
 bool changed(float& cache, float value, float eps);
 bool changedInt(int32_t& cache, int32_t value);
 
-// Poziomy pasek wypelnienia 0..1 z tlem.
+// Horizontal fill bar, 0..1, with a track behind it.
 void bar(M5Canvas& c, int x, int y, int w, int h, float frac, uint16_t fg,
          uint16_t bg = theme::LINE);
 
-// Pasek dwustronny: 0 w srodku, wartosc -1..1 wychodzi w lewo lub w prawo.
+// Bidirectional bar: zero in the middle, -1..1 extends left or right.
 void centerBar(M5Canvas& c, int x, int y, int w, int h, float v, uint16_t fg,
                uint16_t bg = theme::LINE);
 
-// Segment luku. Kat: 0 = gora, rosnie w prawo (zgodnie z ruchem wskazowek).
+// One arc segment. Angles: 0 = up, increasing clockwise.
 void arcSegment(M5Canvas& c, int cx, int cy, int r0, int r1, float a0_deg,
                 float a1_deg, uint16_t color);
 
-// Tekst wysrodkowany w poziomie wzgledem x.
+// Text horizontally centred on x.
 void centerText(M5Canvas& c, const char* s, int x, int y, const lgfx::IFont* font,
                 float size, uint16_t color);
 
-// Mala etykieta w kolorze przygaszonym.
+// Small dimmed caption.
 void label(M5Canvas& c, const char* s, int x, int y, uint16_t color = theme::TEXT_DIM);
 
-// Kolor opony wg temperatury rdzenia (okno optimum ok. 80-95 C).
+// Tyre colour from core temperature (optimal window is roughly 80-95 C).
 uint16_t tyreColor(float temp_c);
 
 }  // namespace ui

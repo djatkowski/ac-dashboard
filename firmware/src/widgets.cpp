@@ -7,7 +7,7 @@ bool Panel::begin(int x, int y, int w, int h) {
   y_ = y;
   w_ = w;
   h_ = h;
-  spr_.setPsram(true);  // 1280x720 nie zmiesci sie w SRAM
+  spr_.setPsram(true);  // 1280x720 will not fit in SRAM
   spr_.setColorDepth(16);
   ready_ = spr_.createSprite(w, h) != nullptr;
   if (ready_) {
@@ -69,13 +69,13 @@ void centerBar(M5Canvas& c, int x, int y, int w, int h, float v, uint16_t fg, ui
       c.fillRect(mid - len, y, len, h, fg);
     }
   }
-  c.drawFastVLine(mid, y - 2, h + 4, theme::TEXT_DIM);  // znacznik zera
+  c.drawFastVLine(mid, y - 2, h + 4, theme::TEXT_DIM);  // zero marker
 }
 
 void arcSegment(M5Canvas& c, int cx, int cy, int r0, int r1, float a0_deg, float a1_deg,
                 uint16_t color) {
-  // Rysujemy wlasna trygonometria zamiast fillArc, zeby konwencja katow byla
-  // ta sama dla luku i dla wszystkiego, co na nim lezy (znaczniki, wskazowka).
+  // We do our own trigonometry instead of fillArc so the angle convention is
+  // identical for the arc and for everything drawn on it (ticks, needle).
   const float a0 = a0_deg * (float)M_PI / 180.0f;
   const float a1 = a1_deg * (float)M_PI / 180.0f;
   const float s0 = sinf(a0), c0 = cosf(a0);
@@ -108,8 +108,8 @@ void label(M5Canvas& c, const char* s, int x, int y, uint16_t color) {
 }
 
 uint16_t tyreColor(float temp_c) {
-  // Okno robocze typowej opony drogowej/semi-slick: ~80-95 C.
-  // Ponizej 60 zimno, powyzej 110 przegrzana.
+  // Working window of a typical road / semi-slick tyre: ~80-95 C.
+  // Below 60 it is cold, above 110 it is overheating.
   const float t = (temp_c - 55.0f) / 60.0f;
   return theme::heatColor(t);
 }

@@ -1,30 +1,30 @@
-// Odbior telemetrii po USB CDC + wygladzanie wartosci pod wyswietlanie.
+// Telemetry reception over USB CDC plus smoothing for display.
 #pragma once
 
 #include "frame_parser.h"
 #include "protocol.h"
 
 struct DashState {
-  AcPacket p{};           // ostatni odebrany pakiet
-  bool linked = false;    // ramki przychodza na biezaco
-  bool game_live = false; // ...i gra faktycznie jedzie (flaga F_LIVE)
+  AcPacket p{};           // last received packet
+  bool linked = false;    // frames are arriving
+  bool game_live = false; // ...and the game is actually driving (F_LIVE)
   uint32_t last_rx_ms = 0;
   uint32_t packets = 0;
-  uint32_t dropped = 0;   // dziury w numeracji seq
-  float rx_hz = 0.0f;     // zmierzona czestotliwosc ramek
+  uint32_t dropped = 0;   // gaps in the seq numbering
+  float rx_hz = 0.0f;     // measured frame rate
 
-  // Wygladzone wartosci - surowe skacza za bardzo, zeby je ladnie animowac.
+  // Smoothed values - the raw ones jitter too much to animate nicely.
   float rpm_smooth = 0.0f;
   float speed_smooth = 0.0f;
   float drift_smooth = 0.0f;
   float yaw_smooth = 0.0f;
 
-  // Historia kata driftu do wykresu przewijanego (ok. 5 s przy 45 fps).
+  // Drift angle history for the scrolling trace (~5 s at 45 fps).
   static constexpr int TRACE_LEN = 220;
   float trace[TRACE_LEN] = {0};
   int trace_head = 0;
 
-  // Szczyt kata w biezacym driftcie - fajnie widziec, ile sie wyciagnelo.
+  // Peak angle of the current slide - nice to see how far it went.
   float peak_angle = 0.0f;
   uint32_t peak_ms = 0;
 
@@ -36,7 +36,7 @@ struct DashState {
 class TelemetryLink {
  public:
   void begin();
-  void update(DashState& st);  // wolac w kazdej klatce
+  void update(DashState& st);  // call once per frame
 
  private:
   FrameParser parser_;
@@ -48,5 +48,5 @@ class TelemetryLink {
   uint8_t rx_[1024];
 };
 
-// Formatowanie czasu okrazenia: "1:23.456" albo "--:--.---".
+// Lap time formatting: "1:23.456" or "--:--.---".
 void formatLapTime(uint32_t ms, char* out, size_t len);

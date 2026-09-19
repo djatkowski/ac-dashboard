@@ -1,44 +1,49 @@
-# Firmware Tab5
+# Tab5 firmware
 
-Arduino + M5Unified/M5GFX, budowane przez PlatformIO.
+Arduino + M5Unified/M5GFX, built with PlatformIO.
 
-## Wgranie
+## Flashing
 
 ```bash
 pio run -t upload
 ```
 
-Potem odpal mostek na pececie (`../pc-app`). Ten sam kabel USB-C sluzy do
-wgrywania i do telemetrii.
+Then start the bridge on the PC (`../pc-app`). The same USB-C cable carries
+both the firmware upload and the telemetry.
 
-## Dlaczego taka konfiguracja
+If the upload fails with `Failed to connect ... No serial data received`, put
+the board into download mode by hand: hold BOOT, tap RESET, release BOOT, and
+run the command again.
 
-**Platforma.** Oficjalny `platform-espressif32` nie obsluguje ESP32-P4, ktory
-siedzi w Tab5. Uzywamy forka [pioarduino](https://github.com/pioarduino/platform-espressif32) -
-to jedyny sposob, zeby to w ogole zbudowac.
+## Why this configuration
 
-**Definicja plytki.** pioarduino nie ma wpisu dla Tab5, wiec projekt wozi
-wlasny: `boards/m5stack_tab5.json`. Wyprowadzony z `esp32-p4_r3-evboard`,
-z poprawiona iloscia PSRAM (32 MB).
+**Platform.** The official `platform-espressif32` does not support the
+ESP32-P4 inside the Tab5. We use the
+[pioarduino](https://github.com/pioarduino/platform-espressif32) fork - it is
+the only way to build this at all.
 
-**Biblioteki.** M5Unified 0.2.22 to pierwsze wydanie, ktore zna Tab5
-(`board_M5Tab5`). Starsze nie wykryja ekranu.
+**Board definition.** pioarduino has no entry for the Tab5, so the project
+carries its own: `boards/m5stack_tab5.json`. It is derived from
+`esp32-p4_r3-evboard` with the PSRAM size corrected to 32 MB.
 
-Wersje w `platformio.ini` sa przypiete swiadomie. Jesli bedziesz je podnosic,
-sprawdz, czy plytka dalej sie wykrywa.
+**Libraries.** M5Unified 0.2.22 is the first release that knows about the
+Tab5 (`board_M5Tab5`). Older ones will not detect the display.
 
-## Jak to dziala
+The versions in `platformio.ini` are pinned deliberately. If you bump them,
+check that the board is still detected.
 
-`main.cpp` zbiera telemetrie w **kazdym** obiegu petli, ale rysuje tylko
-`TARGET_FPS` razy na sekunde. Gdyby odbior byl zwiazany z rysowaniem, dluzsza
-klatka przepelnialaby bufor USB.
+## How it works
 
-Kazdy kafelek ekranu to osobny sprite w PSRAM, przerysowywany dopiero wtedy,
-gdy jego dane sie zmienily. Przerysowywanie calych 1280x720 co klatke
-zmarnowaloby pasmo do framebufora na dane, ktore sie nie ruszyly.
+`main.cpp` collects telemetry on **every** loop pass but only draws
+`TARGET_FPS` times per second. If reception were tied to drawing, a long
+frame would overflow the USB buffer.
 
-`frame_parser.h` celowo nie zalezy od Arduino - dzieki temu ten sam kod, ktory
-sklada ramki na plytce, da sie przetestowac na PC:
+Every screen tile is its own PSRAM sprite, repainted only when its data
+changed. Repainting the full 1280x720 each frame would waste framebuffer
+bandwidth on pixels that did not move.
+
+`frame_parser.h` deliberately has no Arduino dependency, so the very code
+that assembles frames on the board can be tested on a PC:
 
 ```bash
 python3 tools/make_stream.py /tmp/stream.bin
@@ -46,28 +51,30 @@ c++ -std=c++17 -I src -o /tmp/test_parser tools/test_parser.cpp
 /tmp/test_parser /tmp/stream.bin
 ```
 
-Test wstrzykuje w strumien smieci i falszywy `ACT5`, zeby sprawdzic, czy parser
-sie z tego podnosi bez gubienia ramek.
+The test injects garbage and a false `ACT5` into the stream to verify the
+parser recovers without losing frames.
 
-## Ustawienia
+## Settings
 
-Wszystko, co warto ruszac, jest w `src/config.h`: jasnosc, docelowy fps, ekran
-startowy, progi swiatel zmiany biegu, zakres wskaznika kata.
+Everything worth touching lives in `src/config.h`: brightness, target fps,
+startup screen, shift light thresholds, gauge range.
 
-## Znaki i konwencje
+## Signs and conventions
 
-- `drift_angle > 0` - tyl wyszedl w **prawo** (nos patrzy w lewo).
-- `steer > 0` - kierownica w **prawo**.
-- Kontra jest prawidlowa, gdy znaki sie zgadzaja - lapanie poslizgu to skret
-  w strone poslizgu. Na tym opiera sie wskaznik `KONTRA OK` / `W POSLIZG!`.
+- `drift_angle > 0` - the rear stepped out to the **right** (nose points left).
+- `steer > 0` - steering wheel turned **right**.
+- The countersteer is correct when the signs match, because catching a slide
+  means steering into it. That is what drives the `COUNTER OK` / `INTO SLIDE!`
+  indicator.
 
-Jesli u Ciebie kierownica wychodzi odwrotnie (AC bywa rozne w zaleznosci od
-konfiguracji kontrolera), odwroc znak `f.steer` w `pc-app/acbridge/shared_memory.py`.
+If the steering reads backwards on your setup (AC varies with controller
+configuration), flip the sign of `f.steer` in
+`pc-app/acbridge/shared_memory.py`.
 
-## Dotyk
+## Touch
 
-- zakladka na dolnym pasku - zmiana ekranu,
-- przesuniecie palcem w bok (min. 180 px) - to samo, gdziekolwiek po ekranie.
+- tap a tab in the bottom bar - switch screen,
+- swipe sideways (180 px minimum) - same thing, anywhere on the screen.
 
-Dolny pasek pokazuje tez stan: `BRAK USB` / `CZEKAM NA GRE` / `POLACZONO`,
-czestotliwosc ramek, fps i licznik zgubionych pakietow.
+The bottom bar also shows link state: `NO USB` / `WAITING FOR GAME` /
+`CONNECTED`, plus frame rate, fps and a dropped-packet counter.

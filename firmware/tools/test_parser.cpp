@@ -1,8 +1,8 @@
-// Test parsera ramek na PC. Czyta strumien bajtow wygenerowany przez
-// tools/make_stream.py (zawiera celowe smieci) i sprawdza, czy firmware
-// odtwarza dokladnie te wartosci, ktore wyslal Python.
+// Frame parser test that runs on a PC. Reads a byte stream produced by
+// tools/make_stream.py (which contains deliberate garbage) and checks that
+// the firmware reconstructs exactly the values Python sent.
 //
-// Budowanie i uruchomienie:
+// Build and run:
 //     c++ -std=c++17 -I src -o /tmp/test_parser tools/test_parser.cpp
 //     python3 tools/make_stream.py /tmp/stream.bin && /tmp/test_parser /tmp/stream.bin
 #include <cmath>
@@ -14,7 +14,7 @@
 
 int main(int argc, char** argv) {
   if (argc < 2) {
-    fprintf(stderr, "uzycie: %s <stream.bin>\n", argv[0]);
+    fprintf(stderr, "usage: %s <stream.bin>\n", argv[0]);
     return 2;
   }
   FILE* f = fopen(argv[1], "rb");
@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
   while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0) data.insert(data.end(), chunk, chunk + n);
   fclose(f);
 
-  // Karmimy nierownymi kawalkami - USB CDC tez nie dzieli po granicach ramek.
+  // Feed it uneven chunks - USB CDC does not split on frame boundaries either.
   FrameParser parser;
   AcPacket pkt{};
   std::vector<AcPacket> got;
@@ -42,11 +42,11 @@ int main(int argc, char** argv) {
     off += take;
   }
 
-  printf("bajtow na wejsciu : %zu\n", data.size());
-  printf("ramek poprawnych  : %u\n", parser.good());
-  printf("resync-ow         : %u\n", parser.bad());
+  printf("input bytes     : %zu\n", data.size());
+  printf("valid frames    : %u\n", parser.good());
+  printf("resyncs         : %u\n", parser.bad());
 
-  // Python wypelnia seq kolejno, a speed_kmh = seq * 1.5 (patrz make_stream.py).
+  // Python fills seq consecutively and speed_kmh = seq * 1.5 (see make_stream.py).
   int errors = 0;
   for (size_t i = 0; i < got.size(); i++) {
     const AcPacket& p = got[i];
@@ -56,15 +56,15 @@ int main(int argc, char** argv) {
     if (fabsf(p.drift_angle - ((float)p.seq - 50.0f)) > 1e-3f) errors++;
   }
   const AcPacket& last = got.empty() ? pkt : got.back();
-  printf("auto / tor        : %.23s / %.23s\n", last.car_name, last.track_name);
-  printf("ostatni seq       : %u, speed %.1f, bieg %d, drift %.1f\n",
+  printf("car / track     : %.23s / %.23s\n", last.car_name, last.track_name);
+  printf("last seq        : %u, speed %.1f, gear %d, drift %.1f\n",
          last.seq, last.speed_kmh, last.gear, last.drift_angle);
-  printf("bledow pol        : %d\n", errors);
+  printf("field errors    : %d\n", errors);
 
   if (parser.good() != 200 || errors != 0) {
-    printf("\nBLAD: parser zgubil ramki albo przeklamal dane.\n");
+    printf("\nFAIL: the parser lost frames or corrupted the data.\n");
     return 1;
   }
-  printf("\nOK - firmware czyta dokladnie to, co wyslal Python.\n");
+  printf("\nOK - the firmware reads exactly what Python sent.\n");
   return 0;
 }

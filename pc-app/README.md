@@ -1,83 +1,86 @@
-# Mostek PC: Assetto Corsa -> Tab5
+# PC bridge: Assetto Corsa -> Tab5
 
-Czyta pamiec wspoldzielona AC i wysyla telemetrie po USB do Tab5.
-Zaleznosci: tylko `pyserial`.
+Reads Assetto Corsa's shared memory and streams telemetry to the Tab5 over
+USB. The only dependency is `pyserial`.
 
-## Uruchomienie
+## Running it
 
 ```bash
 pip install -r requirements.txt
 python ac_bridge.py
 ```
 
-Kolejnosc wlaczania jest dowolna - mostek czeka i na gre, i na tablet,
-i sam sie podnosi po wyciagnieciu kabla.
+Start order does not matter - the bridge waits for both the game and the
+tablet, and recovers on its own when the cable is pulled.
 
-## Wersja .exe (bez instalowania Pythona)
+## The .exe (no Python install needed)
 
 ```bat
 build_exe.bat
 ```
 
-Wynik: `dist\ac_bridge.exe` - jeden plik, ~9 MB, bez zaleznosci. Skopiuj
-gdziekolwiek i uruchom.
+Result: `dist\ac_bridge.exe` - a single ~9 MB file with no dependencies.
+Copy it anywhere and run it.
 
-**PyInstaller nie kompiluje skrosnie.** Plik dla Windows musi powstac na
-Windows. Jesli nie masz go pod reka, zrobi to CI: wypchnij repo na GitHuba,
-a workflow `.github/workflows/build-exe.yml` zbuduje `.exe` na maszynie
-`windows-latest` i wystawi go jako artefakt (zakladka Actions -> przebieg ->
-Artifacts). Mozna go tez odpalic recznie przyciskiem "Run workflow".
+**PyInstaller cannot cross-compile.** A Windows binary has to be produced on
+Windows. If you do not have one to hand, CI will do it: push the repo to
+GitHub and the `.github/workflows/build-exe.yml` workflow builds the `.exe`
+on a `windows-latest` runner and publishes it as an artifact (Actions tab ->
+pick the run -> Artifacts). You can also trigger it by hand with
+"Run workflow".
 
-Antywirusy lubia zglaszac falszywe alarmy na binarkach z PyInstallera.
-Dlatego UPX jest w `ac_bridge.spec` wylaczony - z kompresja jest jeszcze gorzej.
+Antivirus software likes to raise false positives on PyInstaller binaries.
+That is why UPX is disabled in `ac_bridge.spec` - compression makes it worse.
 
-## Opcje
+## Options
 
-| Flaga | Do czego |
+| Flag | What it does |
 |---|---|
-| `--demo` | sztuczna telemetria; dziala tez na macOS/Linux, bez gry |
-| `--port COM5` | z pominieciem autodetekcji portu |
-| `--list-ports` | co widzi system |
-| `--print` | podglad danych w konsoli (predkosc, obroty, kat driftu) |
-| `--rate 60` | czestotliwosc wysylki, domyslnie 60 Hz |
+| `--demo` | synthetic telemetry; works on macOS/Linux, with no game |
+| `--port COM5` | skip port autodetection |
+| `--list-ports` | show what the system can see |
+| `--print` | live telemetry in the console (speed, revs, drift angle) |
+| `--rate 60` | send rate, 60 Hz by default |
 
-## Jak znajduje Tab5
+## How it finds the Tab5
 
-Tab5 wypisuje w kolko `ACT5HELLO`, dopoki nie dostanie telemetrii. Mostek
-otwiera po kolei porty szeregowe (zaczynajac od tych z VID Espressifu,
-`0x303A`) i czeka 1,5 s na to haslo. Dlatego zwykle nie trzeba podawac `--port`.
+The Tab5 prints `ACT5HELLO` in a loop until telemetry arrives. The bridge
+opens serial ports one at a time (starting with those carrying Espressif's
+VID, `0x303A`) and listens 1.5 s for that keyword. That is why `--port` is
+usually unnecessary.
 
-## Format danych
+## Data format
 
-`acbridge/protocol.py` jest jedynym zrodlem prawdy o ukladzie bajtow.
-Ramka ma 270 B:
+`acbridge/protocol.py` is the single source of truth for the byte layout.
+A frame is 270 B:
 
 ```
-[4B "ACT5"] [264B pakiet] [2B CRC16-CCITT]
+[4B "ACT5"] [264B packet] [2B CRC16-CCITT]
 ```
 
-Magic sluzy za slowo synchronizujace (strumien bajtow nie ma granic pakietow),
-CRC odsiewa przypadkowe bajty danych, ktore wygladaja jak magic.
+The magic doubles as a sync word (a byte stream has no packet boundaries)
+and the CRC rejects random payload bytes that happen to look like the magic.
 
-Po stronie Tab5 odpowiada temu `firmware/src/protocol.h`. **Zmiana w jednym
-pliku wymaga zmiany w drugim** - inaczej `static_assert` w firmware przestanie
-sie zgadzac albo, gorzej, dane beda czytane z przesunieciem.
+On the Tab5 side the counterpart is `firmware/src/protocol.h`. **A change in
+one file requires a change in the other** - otherwise the `static_assert` in
+the firmware stops matching or, worse, data gets read at an offset.
 
-## Skad biora sie dane driftowe
+## Where the drift data comes from
 
-- **Kat poslizgu** - z `localVelocity` (predkosc w ukladzie auta):
-  `atan2(vx, |vz|)`. Dodatni = wektor predkosci ucieka w prawo wzgledem osi
-  auta, czyli tyl wyszedl w prawo. Ponizej 0,8 m/s kat jest smieciem, wiec
-  zwracamy zero. Jest tez zapasowa sciezka przez `heading` dla buildow, ktore
-  nie wypelniaja `localVelocity`.
-- **Predkosc obrotu** - `localAngularVel[1]`, zamieniona na stopnie/s.
-- **Poslizg kol** - `wheelSlip[4]` prosto z gry.
-- **Kat poslizgu kola** - AC go nie wystawia. Skalujemy `wheelSlip`, zeby dalo
-  sie zrobic czytelny wskaznik. To wskaznik, nie pomiar.
+- **Slip angle** - from `localVelocity` (velocity in the car's frame):
+  `atan2(vx, |vz|)`. Positive means the velocity vector points right of the
+  car's axis, i.e. the rear stepped out right. Below 0.8 m/s the angle is
+  noise, so we return zero. There is also a fallback path via `heading` for
+  builds that do not populate `localVelocity`.
+- **Yaw rate** - `localAngularVel[1]`, converted to degrees/s.
+- **Wheel slip** - `wheelSlip[4]` straight from the game.
+- **Per-wheel slip angle** - AC does not expose it. We scale `wheelSlip` into
+  something readable on screen. It is an indicator, not a measurement.
 
-## Uwaga: AC, nie ACC
+## Note: AC, not ACC
 
-Struktury w `shared_memory.py` opisuja **Assetto Corsa**. W Assetto Corsa
-Competizione uklad `SPageFileGraphic` rozjezdza sie za polem `carCoordinates`
-(ACC ma tam tablice dla wielu aut), a `SPageFilePhysics` ma dodatkowe pola na
-koncu. Pod ACC trzeba by dopisac osobny zestaw struktur.
+The structures in `shared_memory.py` describe **Assetto Corsa**. In Assetto
+Corsa Competizione the `SPageFileGraphic` layout diverges after the
+`carCoordinates` field (ACC has an array there covering many cars) and
+`SPageFilePhysics` carries extra trailing fields. Supporting ACC would mean
+adding a separate set of structures.

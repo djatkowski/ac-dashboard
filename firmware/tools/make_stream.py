@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Generuje strumien ramek (ze wstrzyknietymi smieciami) do test_parser.cpp.
+"""Generates a frame stream (with injected garbage) for test_parser.cpp.
 
-Wartosci sa wyliczane z numeru ramki, zeby strona C mogla je sprawdzic
-bez przekazywania oczekiwan osobnym kanalem.
+Values are derived from the frame number so the C side can verify them
+without the expectations being passed through a separate channel.
 """
 import random
 import sys
@@ -24,13 +24,13 @@ for i in range(N):
     f.track_name = "ek_ebisu_minami"
     out += f.frame(i)
     if i == 7:
-        out += b"\x00\xff\x13\x37 smieci z serial monitora\n"
+        out += b"\x00\xff\x13\x37 garbage from a serial monitor\n"
     if i == 15:
-        out += MAGIC + b"\x01\x02"            # falszywy magic
+        out += MAGIC + b"\x01\x02"            # false magic
     if i == 30:
         random.seed(1)
         out += bytes(random.randrange(256) for _ in range(300))
 
 dest = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "stream.bin")
 dest.write_bytes(out)
-print(f"zapisano {len(out)} B -> {dest}  ({N} ramek + smieci)")
+print(f"wrote {len(out)} B -> {dest}  ({N} frames + garbage)")

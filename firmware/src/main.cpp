@@ -1,8 +1,8 @@
-// M5Stack Tab5 - dashboard do Assetto Corsa.
-// Dane przychodza po USB CDC z mostka na PC (katalog pc-app).
+// M5Stack Tab5 - Assetto Corsa dashboard.
+// Data arrives over USB CDC from the PC bridge (see the pc-app directory).
 //
-// Przelaczanie ekranow: dotkniecie zakladki na dole albo przesuniecie
-// palcem w lewo/prawo gdziekolwiek po ekranie.
+// Switching screens: tap a tab at the bottom, or swipe left/right anywhere
+// on the screen.
 #include <Arduino.h>
 #include <M5Unified.h>
 
@@ -23,12 +23,12 @@ int g_page = DEFAULT_PAGE;
 Panel g_tabbar;
 int32_t g_tab_key = INT32_MIN;
 
-// --- sledzenie gestu ---------------------------------------------------------
+// --- gesture tracking --------------------------------------------------------
 bool g_touching = false;
 int g_touch_x0 = 0, g_touch_y0 = 0;
 
-constexpr int kSwipeMinPx = 180;   // od tylu poziomo uznajemy za przesuniecie
-constexpr int kSwipeMaxDy = 120;   // ...o ile palec nie wedrowal za bardzo w pionie
+constexpr int kSwipeMinPx = 180;   // horizontal travel that counts as a swipe
+constexpr int kSwipeMaxDy = 120;   // ...as long as the finger stayed roughly level
 
 void switchPage(int index) {
   if (index < 0) index = 0;
@@ -36,7 +36,7 @@ void switchPage(int index) {
   if (index == g_page) return;
   g_page = index;
   g_pages[g_page]->enter();
-  g_tab_key = INT32_MIN;  // wymus odrysowanie zakladek
+  g_tab_key = INT32_MIN;  // force the tabs to repaint
 }
 
 void handleTouch() {
@@ -59,13 +59,13 @@ void handleTouch() {
     const int dx = t.x - g_touch_x0;
     const int dy = t.y - g_touch_y0;
 
-    // 1. Przesuniecie palcem - zmiana ekranu w obie strony.
+    // 1. Swipe - change screen either way.
     if (abs(dx) >= kSwipeMinPx && abs(dy) <= kSwipeMaxDy) {
       switchPage(dx < 0 ? g_page + 1 : g_page - 1);
       return;
     }
 
-    // 2. Dotkniecie zakladki na dolnym pasku.
+    // 2. Tap on a tab in the bottom bar.
     if (g_touch_y0 >= theme::PAGE_H && abs(dx) < 40) {
       const int tabW = 220;
       if (t.x < tabW) {
@@ -77,9 +77,9 @@ void handleTouch() {
   }
 }
 
-// --- dolny pasek -------------------------------------------------------------
+// --- bottom bar --------------------------------------------------------------
 void drawTabBar(float fps) {
-  // Klucz odrysowania: strona, stan lacza i zaokraglone liczniki.
+  // Repaint key: page, link state and rounded counters.
   const int32_t key = g_page * 1000003 + (g_state.linked ? 7 : 0) +
                       (g_state.game_live ? 13 : 0) + (int32_t)g_state.rx_hz * 31 +
                       (int32_t)fps * 131;
@@ -101,17 +101,17 @@ void drawTabBar(float fps) {
     c.drawString(g_pages[i]->name(), x + tabW / 2, theme::TABBAR_H / 2);
   }
 
-  // Stan polaczenia: kropka + slowo. Trzy rozne sytuacje, trzy rozne komunikaty.
+  // Link state: dot plus a word. Three different situations, three messages.
   const char* status;
   uint16_t color;
   if (!g_state.linked) {
-    status = "BRAK USB";
+    status = "NO USB";
     color = theme::RED;
   } else if (!g_state.game_live) {
-    status = "CZEKAM NA GRE";
+    status = "WAITING FOR GAME";
     color = theme::YELLOW;
   } else {
-    status = "POLACZONO";
+    status = "CONNECTED";
     color = theme::GREEN;
   }
 
@@ -122,9 +122,9 @@ void drawTabBar(float fps) {
   c.setTextColor(color, theme::PANEL);
   c.drawString(status, sx + 20, theme::TABBAR_H / 2);
 
-  // Diagnostyka po prawej - przydaje sie, gdy cos nie dziala.
+  // Diagnostics on the right - handy when something is not working.
   char buf[64];
-  snprintf(buf, sizeof(buf), "%.23s   %.0f Hz   %.0f fps   zgub. %lu",
+  snprintf(buf, sizeof(buf), "%.23s   %.0f Hz   %.0f fps   lost %lu",
            g_state.p.car_name[0] ? g_state.p.car_name : "-", g_state.rx_hz, fps,
            (unsigned long)g_state.dropped);
   c.setFont(&fonts::DejaVu18);
@@ -141,7 +141,7 @@ void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
 
-  M5.Display.setRotation(1);  // 1280x720, poziomo
+  M5.Display.setRotation(1);  // 1280x720, landscape
   M5.Display.setBrightness(SCREEN_BRIGHTNESS);
   M5.Display.fillScreen(theme::BG);
 
@@ -165,16 +165,16 @@ void loop() {
   M5.update();
   handleTouch();
 
-  // Telemetrie zbieramy w kazdym obiegu, nie tylko w klatce rysowania -
-  // dzieki temu bufor USB sie nie przepelnia, gdy rysowanie chwilowo zwolni.
+  // We collect telemetry on every loop pass, not only on drawing frames, so
+  // the USB buffer does not overflow when rendering briefly slows down.
   g_link.update(g_state);
 
   const uint32_t now = millis();
   if ((int32_t)(now - next_frame) < 0) return;
   next_frame = now + (1000 / TARGET_FPS);
 
-  // Zmiana stanu lacza/gry uniewaznia wszystko: inaczej kafelki zostalyby
-  // z ostatnimi wartosciami sprzed rozlaczenia.
+  // A change of link/game state invalidates everything: otherwise the tiles
+  // would keep showing the last values from before the disconnect.
   static int8_t last_link_state = -1;
   const int8_t link_state = (g_state.linked ? 1 : 0) + (g_state.game_live ? 2 : 0);
   if (link_state != last_link_state) {

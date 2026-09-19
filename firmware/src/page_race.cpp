@@ -1,4 +1,4 @@
-// Ekran RACE: obrotomierz, predkosc, bieg, czasy okrazen.
+// RACE screen: rev bar, speed, gear, lap times.
 #include <Arduino.h>
 #include <math.h>
 
@@ -48,11 +48,11 @@ class RacePage : public Page {
     c_blink_ = -1;
   }
 
-  // --- pasek obrotow ---------------------------------------------------------
+  // --- rev bar ---------------------------------------------------------------
   void drawRpmBar(const DashState& st) {
     const float frac = st.rpmFraction();
-    // Miganie na ograniczniku - najwazniejszy sygnal na calym ekranie,
-    // ma byc widoczny katem oka.
+    // Flashing on the limiter: the single most important signal on the
+    // whole screen, it has to register in peripheral vision.
     const bool limiter = (st.p.flags & F_ENGINE_LIMITER) && st.game_live;
     const int blink = limiter ? (int)((millis() / 80) % 2) : 0;
 
@@ -70,9 +70,9 @@ class RacePage : public Page {
       const float segFrac = (i + 0.5f) / kSegments;
       uint16_t color;
       if (segFrac > frac) {
-        color = theme::PANEL;  // segment wygaszony
+        color = theme::PANEL;  // segment off
       } else if (blink) {
-        color = theme::TEXT;   // blysk na ograniczniku
+        color = theme::TEXT;   // limiter flash
       } else if (segFrac < SHIFT_LIGHT_START) {
         color = theme::lerp565(theme::GREEN, theme::YELLOW, segFrac / SHIFT_LIGHT_START);
       } else if (segFrac < SHIFT_LIGHT_RED) {
@@ -86,12 +86,12 @@ class RacePage : public Page {
     rpm_.push();
   }
 
-  // --- predkosc --------------------------------------------------------------
+  // --- speed -----------------------------------------------------------------
   void drawSpeed(const DashState& st) {
     if (!ui::changed(c_speed_, st.speed_smooth, 0.4f)) return;
     Panel& p = speed_;
     M5Canvas& c = p.c();
-    p.tile("PREDKOSC");
+    p.tile("SPEED");
 
     char buf[8];
     snprintf(buf, sizeof(buf), "%d", (int)lroundf(fmaxf(0.0f, st.speed_smooth)));
@@ -105,7 +105,7 @@ class RacePage : public Page {
     p.push();
   }
 
-  // --- bieg ------------------------------------------------------------------
+  // --- gear ------------------------------------------------------------------
   void drawGear(const DashState& st) {
     const int32_t gear = st.game_live ? st.p.gear : -2;
     const float frac = st.rpmFraction();
@@ -115,9 +115,10 @@ class RacePage : public Page {
 
     Panel& p = gear_;
     M5Canvas& c = p.c();
-    // Tlo kafelka biegu zmienia sie przy zmianie biegu - widac ja peryferyjnie.
+    // The gear tile changes colour near the shift point, so an upshift is
+    // visible without looking straight at it.
     const uint16_t bg = zone == 2 ? theme::RED : (zone == 1 ? theme::ORANGE : theme::PANEL);
-    p.tile("BIEG", bg);
+    p.tile("GEAR", bg);
 
     c.setFont(&fonts::DejaVu72);
     c.setTextSize(2.6f);
@@ -127,14 +128,14 @@ class RacePage : public Page {
     p.push();
   }
 
-  // --- obroty liczbowo -------------------------------------------------------
+  // --- revs as a number ------------------------------------------------------
   void drawRpmNumber(const DashState& st) {
     const int32_t rpm = (int32_t)(lroundf(st.rpm_smooth / 10.0f) * 10);
     if (!ui::changedInt(c_rpmnum_, rpm)) return;
 
     Panel& p = rpmnum_;
     M5Canvas& c = p.c();
-    p.tile("OBROTY");
+    p.tile("RPM");
 
     char buf[12];
     snprintf(buf, sizeof(buf), "%d", (int)rpm);
@@ -183,18 +184,18 @@ class RacePage : public Page {
     p.push();
   }
 
-  // --- paliwo ----------------------------------------------------------------
+  // --- fuel ------------------------------------------------------------------
   void drawFuel(const DashState& st) {
     if (!ui::changed(c_fuel_, st.p.fuel_l, 0.05f)) return;
 
     Panel& p = fuel_;
     M5Canvas& c = p.c();
-    p.tile("PALIWO");
+    p.tile("FUEL");
 
     const float pct = st.p.fuel_pct / 100.0f;
     const uint16_t color = pct < 0.1f ? theme::RED : (pct < 0.25f ? theme::ORANGE : theme::GREEN);
 
-    // Pionowy zbiornik - czytelniejszy niz pasek przy jednym rzucie oka.
+    // A vertical tank reads faster at a glance than a horizontal bar.
     const int bx = 30, by = 56, bw = 56, bh = 200;
     c.fillRoundRect(bx, by, bw, bh, 8, theme::PANEL_HI);
     const int fill = (int)(bh * pct);
@@ -207,7 +208,7 @@ class RacePage : public Page {
     c.setTextDatum(textdatum_t::middle_left);
     c.setTextColor(theme::TEXT, theme::PANEL);
     c.drawString(buf, bx + bw + 20, by + 60);
-    ui::label(c, "litry", bx + bw + 22, by + 82);
+    ui::label(c, "liters", bx + bw + 22, by + 82);
 
     snprintf(buf, sizeof(buf), "%d%%", st.p.fuel_pct);
     c.setFont(&fonts::DejaVu24);
@@ -217,7 +218,7 @@ class RacePage : public Page {
     p.push();
   }
 
-  // --- czasy okrazen ---------------------------------------------------------
+  // --- lap times -------------------------------------------------------------
   void drawLaps(const DashState& st) {
     const int32_t key = (int32_t)(st.p.lap_ms / 10) ^ (int32_t)st.p.last_lap_ms ^
                         (int32_t)(st.p.best_lap_ms << 1);
@@ -233,9 +234,9 @@ class RacePage : public Page {
       uint16_t color;
     };
     const Item kItems[] = {
-        {"OKRAZENIE", st.p.lap_ms, theme::TEXT},
-        {"POPRZEDNIE", st.p.last_lap_ms, theme::ACCENT},
-        {"NAJLEPSZE", st.p.best_lap_ms, theme::MAGENTA},
+        {"CURRENT", st.p.lap_ms, theme::TEXT},
+        {"LAST", st.p.last_lap_ms, theme::ACCENT},
+        {"BEST", st.p.best_lap_ms, theme::MAGENTA},
     };
     const int boxW = (p.w() - 28 - 2 * 10) / 3;
 
@@ -254,7 +255,7 @@ class RacePage : public Page {
     p.push();
   }
 
-  // --- pozycja i okrazenia ---------------------------------------------------
+  // --- position and lap count ------------------------------------------------
   void drawPosition(const DashState& st) {
     const int32_t key = st.p.position * 10000 + st.p.lap_count;
     if (!ui::changedInt(c_pos_, key)) return;
@@ -264,21 +265,21 @@ class RacePage : public Page {
     p.tile(nullptr);
 
     char buf[12];
-    ui::label(c, "POZYCJA", 16, 16);
+    ui::label(c, "POSITION", 16, 16);
     snprintf(buf, sizeof(buf), "%d", st.game_live ? st.p.position : 0);
     c.setFont(&fonts::DejaVu40);
     c.setTextDatum(textdatum_t::middle_left);
     c.setTextColor(theme::TEXT, theme::PANEL);
     c.drawString(buf, 16, 62);
 
-    ui::label(c, "OKRAZEN", 130, 16);
+    ui::label(c, "LAPS", 130, 16);
     snprintf(buf, sizeof(buf), "%d", st.game_live ? st.p.lap_count : 0);
     c.setTextColor(theme::ACCENT, theme::PANEL);
     c.drawString(buf, 130, 62);
     p.push();
   }
 
-  // --- pedaly i kierownica ---------------------------------------------------
+  // --- pedals and steering ---------------------------------------------------
   void drawPedals(const DashState& st) {
     const bool dirty = ui::changed(c_thr_, st.p.throttle, 0.01f) |
                        ui::changed(c_brk_, st.p.brake, 0.01f) |
@@ -291,18 +292,18 @@ class RacePage : public Page {
     p.tile(nullptr);
 
     const int barW = 300, barH = 26, x0 = 90;
-    ui::label(c, "GAZ", 16, 16);
+    ui::label(c, "THR", 16, 16);
     ui::bar(c, x0, 18, barW, barH, st.p.throttle, theme::GREEN);
-    ui::label(c, "HAM", 16, 56);
+    ui::label(c, "BRK", 16, 56);
     ui::bar(c, x0, 58, barW, barH, st.p.brake, theme::RED);
 
-    ui::label(c, "SPRZ", 430, 16);
+    ui::label(c, "CLU", 430, 16);
     ui::bar(c, 510, 18, 220, barH, st.p.clutch, theme::YELLOW);
 
-    ui::label(c, "KIEROWNICA", 430, 56);
+    ui::label(c, "STEERING", 430, 56);
     ui::centerBar(c, 590, 58, 480, barH, st.p.steer, theme::ACCENT);
 
-    // Liczbowo gaz/hamulec - przydatne przy analizie wejscia w zakret.
+    // Throttle/brake as numbers - useful when analysing corner entry.
     char buf[16];
     snprintf(buf, sizeof(buf), "%3d%%", (int)(st.p.throttle * 100));
     c.setFont(&fonts::DejaVu24);

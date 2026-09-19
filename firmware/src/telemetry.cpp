@@ -7,7 +7,7 @@
 
 namespace {
 
-// Wykladnicze wygladzanie niezalezne od czasu klatki.
+// Exponential smoothing that does not depend on the frame interval.
 inline void smooth(float& value, float target, float tau_s, float dt) {
   const float a = 1.0f - expf(-dt / tau_s);
   value += (target - value) * a;
@@ -32,7 +32,7 @@ float DashState::rpmFraction() const {
 }
 
 void TelemetryLink::begin() {
-  // USB CDC ignoruje predkosc, ale Serial.begin i tak jest wymagane.
+  // USB CDC ignores the baud rate, but Serial.begin is still required.
   Serial.setRxBufferSize(8192);
   Serial.begin(921600);
   last_hello_ms_ = 0;
@@ -41,15 +41,15 @@ void TelemetryLink::begin() {
 void TelemetryLink::update(DashState& st) {
   const uint32_t now = millis();
 
-  // Dopoki PC nas nie znalazl, wolamy o siebie. Po nawiazaniu lacza cichniemy,
-  // zeby nie mieszac tekstu w binarny strumien w druga strone.
+  // Until the PC finds us we announce ourselves. Once linked we go quiet, so
+  // no text gets mixed into the binary stream flowing the other way.
   if (!st.linked && now - last_hello_ms_ >= HELLO_PERIOD_MS) {
     last_hello_ms_ = now;
     Serial.print(AC_HELLO_LINE);
   }
 
-  // Wciagamy WSZYSTKO, co przyszlo, i zostawiamy najswiezsza ramke -
-  // zaleglosci w kolejce sa bezwartosciowe przy 60 Hz.
+  // Drain EVERYTHING that arrived and keep the freshest frame - at 60 Hz a
+  // queue of stale frames has no value.
   bool got = false;
   while (int avail = Serial.available()) {
     const size_t want = (avail > (int)sizeof(rx_)) ? sizeof(rx_) : (size_t)avail;
@@ -82,7 +82,7 @@ void TelemetryLink::update(DashState& st) {
     hz_count_ = 0;
   }
 
-  // --- wygladzanie i historia ---
+  // --- smoothing and history ---
   static uint32_t last_ms = 0;
   float dt = (last_ms == 0) ? 0.02f : (now - last_ms) / 1000.0f;
   last_ms = now;
@@ -95,8 +95,8 @@ void TelemetryLink::update(DashState& st) {
     smooth(st.drift_smooth, 0.0f, 0.15f, dt);
     smooth(st.yaw_smooth, 0.0f, 0.15f, dt);
   } else {
-    // Obroty wygladzamy minimalnie - opoznienie na swiatlach zmiany biegu
-    // jest gorsze niz lekkie drganie cyfry.
+    // Barely smooth the revs: lag on the shift lights is worse than a
+    // slightly jittery number.
     smooth(st.rpm_smooth, st.p.rpm, 0.030f, dt);
     smooth(st.speed_smooth, st.p.speed_kmh, 0.060f, dt);
     smooth(st.drift_smooth, st.p.drift_angle, 0.045f, dt);
@@ -106,7 +106,7 @@ void TelemetryLink::update(DashState& st) {
   st.trace_head = (st.trace_head + 1) % DashState::TRACE_LEN;
   st.trace[st.trace_head] = st.drift_smooth;
 
-  // Szczyt kata trzymamy 4 s od ostatniego istotnego wychylenia.
+  // Hold the peak angle for 4 s after the last significant deflection.
   const float mag = fabsf(st.drift_smooth);
   if (mag > 6.0f && mag > fabsf(st.peak_angle)) {
     st.peak_angle = st.drift_smooth;

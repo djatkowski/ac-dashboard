@@ -1,20 +1,20 @@
-"""Format pakietu telemetrii AC -> M5Stack Tab5.
+"""Telemetry packet format: AC -> M5Stack Tab5.
 
-Ten plik jest JEDYNYM zrodlem prawdy o ukladzie bajtow.
-Odpowiednik po stronie Tab5: firmware/src/protocol.h
-Kazda zmiana musi byc wprowadzona w OBU plikach (wersja +1).
+This file is the SINGLE source of truth for the byte layout.
+Its mirror on the Tab5 side is firmware/src/protocol.h
+Any change must be made in BOTH files (and bump VERSION).
 
-Wszystko little-endian, bez paddingu (w C: #pragma pack(1)).
-Pola sa i tak ulozone tak, zeby kazdy float/u32 lezal na granicy 4 bajtow.
+Everything is little-endian with no padding (C: #pragma pack(1)).
+Fields are ordered so every float/u32 lands on a 4-byte boundary anyway.
 
-Transport: USB CDC (port szeregowy). Strumien bajtow nie ma granic pakietow,
-wiec kazda ramka to:
+Transport: USB CDC (serial port). A byte stream has no packet boundaries,
+so every frame is:
 
-    [4B magic "ACT5"] [264B reszta pakietu] [2B CRC16-CCITT]  = 270 B
+    [4B magic "ACT5"] [264B rest of packet] [2B CRC16-CCITT]  = 270 B
 
-Magic sluzy za slowo synchronizujace przy odzyskiwaniu sie po smieciach,
-CRC potwierdza, ze trafilismy w prawdziwy poczatek ramki, a nie w przypadkowe
-bajty danych, ktore wygladaja jak magic.
+The magic doubles as a sync word for recovering after garbage, and the CRC
+confirms we hit a real frame start rather than random payload bytes that
+happen to look like the magic.
 """
 
 from __future__ import annotations
@@ -26,23 +26,23 @@ from dataclasses import dataclass, field
 MAGIC = b"ACT5"
 VERSION = 2
 
-# Tab5 wypisuje to w petli, dopoki nie dostanie telemetrii - po tym
-# rozpoznajemy wlasciwy port szeregowy przy autodetekcji.
+# The Tab5 prints this in a loop until telemetry arrives - that is how we
+# recognise the right serial port during autodetection.
 HELLO_LINE = b"ACT5HELLO"
 
-# Nominalna predkosc portu. USB CDC i tak ja ignoruje (leci pelna predkoscia
-# USB), ale pyserial wymaga podania liczby.
+# Nominal port speed. USB CDC ignores it (data moves at full USB speed),
+# but pyserial insists on a number.
 BAUD = 921600
 
-# --- flagi (bitmaska w polu `flags`) -----------------------------------------
-F_LIVE = 1 << 0  # gra dziala i jedziemy (nie menu / nie pauza)
+# --- flags (bitmask in the `flags` field) ------------------------------------
+F_LIVE = 1 << 0  # game is running and we are driving (not menu / not paused)
 F_IN_PIT = 1 << 1
 F_PIT_LIMITER = 1 << 2
 F_ABS_ACTIVE = 1 << 3
 F_TC_ACTIVE = 1 << 4
 F_DRS = 1 << 5
 F_VALID_LAP = 1 << 6
-F_ENGINE_LIMITER = 1 << 7  # obroty na ograniczniku
+F_ENGINE_LIMITER = 1 << 7  # engine on the rev limiter
 
 _FMT = (
     "<"
@@ -52,9 +52,9 @@ _FMT = (
     "5f"                  # throttle, brake, clutch, steer, fuel_l
     "2f"                  # drift_angle_deg, yaw_rate_dps
     "3f"                  # g_lat, g_lon, g_vert
-    "4f"                  # slip_angle[4]  (stopnie, przyblizenie)
-    "4f"                  # wheel_slip[4]  (0..1+, poslizg kola z AC)
-    "4f"                  # tyre_temp[4]   (C, rdzen)
+    "4f"                  # slip_angle[4]  (degrees, approximation)
+    "4f"                  # wheel_slip[4]  (0..1+, raw wheel slip from AC)
+    "4f"                  # tyre_temp[4]   (C, core)
     "4f"                  # tyre_press[4]  (psi)
     "4f"                  # brake_temp[4]  (C)
     "4f"                  # tyre_dirt[4]   (0..5)
@@ -65,11 +65,11 @@ _FMT = (
     "3I"                  # lap_ms, last_lap_ms, best_lap_ms
     "H 2B"                # lap_count, position, tyres_out
     "2f"                  # norm_pos (0..1), distance_m
-    "24s 24s"             # car_name, track_name (ascii, dopelnione zerami)
+    "24s 24s"             # car_name, track_name (ascii, nul padded)
 )
 
 PACKET_SIZE = struct.calcsize(_FMT)
-assert PACKET_SIZE == 268, f"nieoczekiwany rozmiar pakietu: {PACKET_SIZE}"
+assert PACKET_SIZE == 268, f"unexpected packet size: {PACKET_SIZE}"
 
 CRC_SIZE = 2
 FRAME_SIZE = PACKET_SIZE + CRC_SIZE  # 270
@@ -78,9 +78,9 @@ _PACKER = struct.Struct(_FMT)
 
 
 def crc16(data: bytes) -> int:
-    """CRC16-CCITT (wielomian 0x1021, init 0xFFFF).
+    """CRC16-CCITT (polynomial 0x1021, init 0xFFFF).
 
-    Ten sam algorytm co crc16() w firmware/src/protocol.h.
+    Same algorithm as ac_crc16() in firmware/src/protocol.h.
     """
     crc = 0xFFFF
     for byte in data:
@@ -95,7 +95,7 @@ def _ascii24(s: str) -> bytes:
 
 
 def _q4(v) -> list:
-    """Normalizuje cokolwiek do listy 4 floatow."""
+    """Normalise anything into a list of exactly 4 floats."""
     if v is None:
         return [0.0] * 4
     out = [float(x) for x in v][:4]
@@ -104,8 +104,8 @@ def _q4(v) -> list:
 
 @dataclass
 class Frame:
-    """Jedna ramka telemetrii. Wypelniana przez czytnik shared memory
-    albo przez symulator, potem pakowana do UDP."""
+    """One telemetry frame. Filled in by the shared memory reader or by the
+    simulator, then packed onto the wire."""
 
     flags: int = 0
     seq: int = 0
@@ -126,8 +126,8 @@ class Frame:
     steer: float = 0.0
     fuel_l: float = 0.0
 
-    drift_angle: float = 0.0   # stopnie, + = tyl ucieka w prawo
-    yaw_rate: float = 0.0      # stopnie/s
+    drift_angle: float = 0.0   # degrees, + = rear stepping out to the right
+    yaw_rate: float = 0.0      # degrees/s
     g_lat: float = 0.0
     g_lon: float = 0.0
     g_vert: float = 0.0
@@ -158,7 +158,7 @@ class Frame:
     track_name: str = ""
 
     def frame(self, seq: int) -> bytes:
-        """Gotowa ramka do wyslania po USB: pakiet + CRC16."""
+        """A complete wire frame: packet + CRC16."""
         body = self.pack(seq)
         return body + struct.pack("<H", crc16(body))
 
@@ -214,4 +214,4 @@ if __name__ == "__main__":
     print(f"PACKET_SIZE = {PACKET_SIZE}")
     print(f"FRAME_SIZE  = {FRAME_SIZE}")
     print(f"len(frame)  = {len(Frame().frame(0))}")
-    print(f"crc16(b'123456789') = 0x{crc16(b'123456789'):04X}  (oczekiwane 0x29B1)")
+    print(f"crc16(b'123456789') = 0x{crc16(b'123456789'):04X}  (expected 0x29B1)")

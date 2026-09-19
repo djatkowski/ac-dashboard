@@ -1,8 +1,8 @@
-"""Transport USB: wysylka ramek telemetrii do Tab5 przez port szeregowy.
+"""USB transport: sends telemetry frames to the Tab5 over a serial port.
 
-Tab5 zglasza sie linia "ACT5HELLO", dopoki nie dostanie telemetrii. Dzieki
-temu mozemy znalezc wlasciwy port bez pytania uzytkownika o nazwe: otwieramy
-kandydatow po kolei i sluchamy, ktory sie odezwie.
+The Tab5 announces itself with an "ACT5HELLO" line until telemetry starts
+arriving. That lets us find the right port without asking the user for a
+name: we open candidates one by one and listen for who answers.
 """
 
 from __future__ import annotations
@@ -14,22 +14,22 @@ try:
     from serial.tools import list_ports
 except ImportError as exc:  # pragma: no cover
     raise SystemExit(
-        "Brakuje biblioteki pyserial. Zainstaluj:  pip install -r requirements.txt"
+        "pyserial is missing. Install it with:  pip install -r requirements.txt"
     ) from exc
 
 from .protocol import BAUD, HELLO_LINE, Frame
 
-# ESP32-P4 zglasza sie natywnym USB Serial/JTAG Espressifu.
+# The ESP32-P4 enumerates as Espressif's native USB Serial/JTAG device.
 ESPRESSIF_VID = 0x303A
 
-PROBE_TIMEOUT = 1.5  # s nasluchu na "hello" na jednym porcie
+PROBE_TIMEOUT = 1.5  # seconds spent listening for "hello" on one port
 
 
 def list_candidates() -> list:
-    """Porty szeregowe posortowane od najbardziej prawdopodobnego."""
+    """Serial ports, most likely one first."""
     ports = list(list_ports.comports())
-    # Odsiewamy oczywiste nie-to: na Macu kazdy port ma blizniaka /dev/tty.*,
-    # z ktorego zapis potrafi sie zablokowac - wolimy /dev/cu.*.
+    # Drop the obvious non-candidates: on macOS every port has a /dev/tty.*
+    # twin whose open() can block waiting for carrier detect. Prefer /dev/cu.*.
     ports = [p for p in ports if not p.device.startswith("/dev/tty.")]
     ports.sort(key=lambda p: (p.vid != ESPRESSIF_VID, p.device))
     return ports
@@ -42,7 +42,7 @@ def describe(port) -> str:
 
 
 def probe(device: str) -> bool:
-    """Czy na tym porcie siedzi nasz dashboard?"""
+    """Is our dashboard sitting on this port?"""
     try:
         with serial.Serial(device, BAUD, timeout=0.2) as ser:
             ser.reset_input_buffer()
@@ -64,26 +64,26 @@ def probe(device: str) -> bool:
 def autodetect(verbose: bool = True) -> str | None:
     for port in list_candidates():
         if verbose:
-            print(f"    sprawdzam {describe(port)}")
+            print(f"    probing {describe(port)}")
         if probe(port.device):
             return port.device
     return None
 
 
 class SerialLink:
-    """Utrzymuje polaczenie z Tab5 i wysyla ramki. Sam sie odtwarza po
-    wyciagnieciu i wpieciu kabla."""
+    """Keeps the connection to the Tab5 alive and sends frames. Recovers on
+    its own after the cable is unplugged and plugged back in."""
 
     def __init__(self, device: str | None = None, verbose: bool = True) -> None:
-        self.device = device        # None = autodetekcja
+        self.device = device        # None = autodetect
         self.fixed = device is not None
         self.verbose = verbose
         self.ser: serial.Serial | None = None
         self.seq = 0
         self.frames_sent = 0
         self._next_retry = 0.0
-        # Szukanie powtarza sie co 2 s. Pelny raport ze skanu pokazujemy tylko
-        # za pierwszym razem, zeby nie zasypac konsoli w kolko tym samym.
+        # The search repeats every 2 s. Report the full scan only the first
+        # time, so we do not flood the console with the same lines forever.
         self._complained = False
 
     @property
@@ -102,30 +102,30 @@ class SerialLink:
         first = not self._complained
         if device is None:
             if self.verbose and first:
-                print("[i] Szukam Tab5 na portach szeregowych...")
+                print("[i] Looking for the Tab5 on the serial ports...")
             device = autodetect(self.verbose and first)
             if device is None:
                 if self.verbose and first:
-                    print("[-] Nie znalazlem Tab5. Podepnij kabel USB-C albo podaj --port.")
-                    print("    Szukam dalej w tle...")
+                    print("[-] Tab5 not found. Plug in the USB-C cable or pass --port.")
+                    print("    Still searching in the background...")
                 self._complained = True
                 return False
 
         try:
-            # write_timeout chroni przed zawieszeniem sie petli, gdyby Tab5
-            # przestal odbierac (np. zawis albo reset w trakcie zapisu).
+            # write_timeout keeps the loop from hanging if the Tab5 stops
+            # reading (a crash, or a reset mid-write).
             self.ser = serial.Serial(device, BAUD, timeout=0.05, write_timeout=0.5)
             self.ser.reset_input_buffer()
             if not self.fixed:
                 self.device = device
-            self._complained = False  # nastepna utrata polaczenia znow zaraportuje
+            self._complained = False  # the next disconnect should report again
             if self.verbose:
-                print(f"[+] Tab5 podlaczony: {device}")
+                print(f"[+] Tab5 connected: {device}")
             return True
         except (OSError, serial.SerialException) as exc:
             if self.verbose and first:
-                print(f"[-] Nie moge otworzyc {device}: {exc}")
-                print("    Probuje dalej w tle...")
+                print(f"[-] Cannot open {device}: {exc}")
+                print("    Retrying in the background...")
             self._complained = True
             self.ser = None
             if not self.fixed:
@@ -143,7 +143,7 @@ class SerialLink:
             return True
         except (OSError, serial.SerialException, serial.SerialTimeoutException) as exc:
             if self.verbose:
-                print(f"[-] Utracono Tab5 ({exc}). Czekam na ponowne podlaczenie.")
+                print(f"[-] Lost the Tab5 ({exc}). Waiting for it to come back.")
             self.close()
             if not self.fixed:
                 self.device = None

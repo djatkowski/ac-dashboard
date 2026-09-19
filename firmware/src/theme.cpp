@@ -14,7 +14,7 @@ uint16_t lerp565(uint16_t a, uint16_t b, float t) {
 }
 
 uint16_t heatColor(float t) {
-  // zimno -> niebieski, optimum -> zielony, goraco -> zolty -> czerwony
+  // cold -> blue, optimal -> green, hot -> yellow -> red
   if (t < 0.0f) t = 0.0f;
   if (t > 1.0f) t = 1.0f;
   if (t < 0.33f) return lerp565(BLUE, GREEN, t / 0.33f);

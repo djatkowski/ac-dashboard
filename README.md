@@ -1,26 +1,28 @@
-# Dashboard Assetto Corsa na M5Stack Tab5
+# Assetto Corsa dashboard on an M5Stack Tab5
 
-Telemetria z Assetto Corsa na ekranie Tab5 (1280x720), przez kabel USB-C.
-Dwa ekrany przelaczane dotykiem: klasyczny **RACE** i **DRIFT** z katem poslizgu.
+Assetto Corsa telemetry on a Tab5 screen (1280x720), over a USB-C cable.
+Two touch-switchable screens: a classic **RACE** layout and a **DRIFT** one
+built around body slip angle.
 
 ```
   Assetto Corsa                pc-app/                      firmware/
   (shared memory)  ────────>   ac_bridge.py    ──USB-C──>   Tab5
-   physics 333 Hz              czyta pamiec                 rysuje 45 fps
-   graphics 60 Hz              wspoldzielona,
-   static                      pakuje do 270 B
+   physics 333 Hz              reads shared                 draws at 45 fps
+   graphics 60 Hz              memory, packs
+   static                      into 270 B frames
 ```
 
-## Dlaczego przez program posredni
+## Why a bridge program
 
-AC nie wysyla przez siec kompletu danych - wbudowana telemetria UDP (port 9996)
-nie zawiera m.in. paliwa i temperatur opon. Pelny obraz jest tylko w pamieci
-wspoldzielonej, a ta jest dostepna wylacznie lokalnie na pececie. Stad mostek:
-czyta pamiec i przepycha wszystko do Tab5.
+AC does not broadcast the full picture over the network - its built-in UDP
+telemetry (port 9996) omits fuel and tyre temperatures, among other things.
+The complete data lives only in shared memory, and that is reachable only
+locally on the PC. Hence the bridge: it reads shared memory and pushes
+everything to the Tab5.
 
-## Szybki start
+## Quick start
 
-**1. PC (Windows, tam gdzie chodzi gra)**
+**1. PC (Windows, wherever the game runs)**
 
 ```bash
 cd pc-app
@@ -28,8 +30,8 @@ pip install -r requirements.txt
 python ac_bridge.py
 ```
 
-Wolisz jeden plik .exe bez instalowania Pythona? Uruchom `pc-app\build_exe.bat`
-(na Windows) albo pobierz artefakt z GitHub Actions - szczegoly w `pc-app/README.md`.
+Prefer a single .exe with no Python install? Run `pc-app\build_exe.bat` on
+Windows, or grab the artifact from GitHub Actions - see `pc-app/README.md`.
 
 **2. Tab5**
 
@@ -38,53 +40,52 @@ cd firmware
 pio run -t upload
 ```
 
-Podepnij Tab5 kablem USB-C. Mostek sam znajdzie port - nic nie konfigurujesz.
+Plug the Tab5 in over USB-C. The bridge finds the port on its own - there is
+nothing to configure.
 
-## Test bez gry
+## Trying it without the game
 
-Chcesz zobaczyc dzialajacy ekran, zanim odpalisz AC (albo pracujesz na Macu):
+To see the screen working before you launch AC (or if you are on a Mac):
 
 ```bash
 python ac_bridge.py --demo
 ```
 
-Symulator udaje auto wpadajace cyklicznie w drift, wiec widac cala skale
-wskaznikow.
+The simulator fakes a car periodically falling into a drift, so every gauge
+gets exercised across its full range.
 
-## Uklad ekranow
+## The two screens
 
-**RACE** - pasek obrotow na calej szerokosci ze swiatlami zmiany biegu,
-predkosc, bieg, obroty, ABS/TC/DRS/PIT, paliwo, trzy czasy okrazen,
-pedaly i kierownica.
+**RACE** - full-width rev bar with shift lights, speed, gear, revs,
+ABS/TC/DRS/PIT indicators, fuel, three lap times, pedals and steering.
 
-**DRIFT** - duzy wskaznik kata poslizgu ze znacznikiem szczytu, historia kata
-z ostatnich ~5 s, wskaznik kontry (czy lapiesz poslizg, czy go poglebiasz),
-predkosc obrotu, kula przeciazen, poslizg i temperatury kazdej opony,
-przyczepnosc nawierzchni.
+**DRIFT** - large slip angle gauge with a peak marker, angle history for the
+last ~5 s, a countersteer indicator (are you catching the slide or feeding
+it), yaw rate, a g-force ball, per-tyre slip and temperature, surface grip.
 
-Przelaczanie: dotknij zakladki na dole albo przesun palcem w bok.
+Switching: tap a tab at the bottom, or swipe sideways.
 
-## Struktura
+## Layout
 
 ```
-pc-app/                mostek na PC (Python, tylko pyserial)
-  acbridge/protocol.py   <- format pakietu: JEDYNE zrodlo prawdy
+pc-app/                the PC bridge (Python, pyserial only)
+  acbridge/protocol.py   <- packet format: THE single source of truth
   acbridge/shared_memory.py
   acbridge/serial_link.py
   acbridge/simulator.py
   ac_bridge.py
-  ac_bridge.spec         <- pakowanie do jednego .exe
-  build_exe.bat          <- budowanie .exe jednym kliknieciem (Windows)
+  ac_bridge.spec         <- packaging into one .exe
+  build_exe.bat          <- one-click .exe build (Windows)
 firmware/              PlatformIO, Arduino + M5Unified
-  src/protocol.h         <- lustro protocol.py, trzymac zgodne!
-  src/frame_parser.h     <- skladanie ramek, testowalne na PC
+  src/protocol.h         <- mirror of protocol.py, keep them in sync!
+  src/frame_parser.h     <- frame assembly, testable on a PC
   src/page_race.cpp
   src/page_drift.cpp
-  tools/                 <- test parsera uruchamiany na PC
+  tools/                 <- parser test that runs on a PC
 ```
 
-Zmieniasz format danych? Edytuj `protocol.py` **i** `protocol.h`, podbij
-`VERSION`, potem uruchom test zgodnosci:
+Changing the data format? Edit `protocol.py` **and** `protocol.h`, bump
+`VERSION`, then run the contract test:
 
 ```bash
 cd firmware

@@ -1,16 +1,16 @@
-"""Czytnik pamieci wspoldzielonej Assetto Corsa (AC1).
+"""Assetto Corsa shared memory reader (AC1).
 
-AC wystawia trzy nazwane mapowania pamieci:
-    Local\\acpmf_physics   - 333 Hz, dane fizyki
-    Local\\acpmf_graphics  - ~60 Hz, stan sesji / czasy
-    Local\\acpmf_static    - stale sesji (auto, tor, maxRpm, maxFuel)
+AC exposes three named memory mappings:
+    Local\\acpmf_physics   - 333 Hz, physics data
+    Local\\acpmf_graphics  - ~60 Hz, session state / lap times
+    Local\\acpmf_static    - session constants (car, track, maxRpm, maxFuel)
 
-Uklady struktur ponizej odpowiadaja Assetto Corsa (nie ACC - tam po polu
-carCoordinates uklad SPageFileGraphic sie rozjezdza; patrz README).
+The struct layouts below match Assetto Corsa, not ACC - in ACC the
+SPageFileGraphic layout diverges right after carCoordinates (see README).
 
-wchar_t jest tu celowo zamapowany na c_uint16 zamiast ctypes.c_wchar -
-dzieki temu rozmiary struktur sa takie same niezaleznie od platformy,
-wiec modul da sie zaimportowac (i przetestowac) takze poza Windows.
+wchar_t is deliberately mapped to c_uint16 rather than ctypes.c_wchar: that
+keeps struct sizes identical on every platform, so this module can be
+imported (and tested) off Windows too.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ WCHAR = ctypes.c_uint16
 
 
 def _wstr(arr) -> str:
-    """Dekoduje tablice UTF-16LE zakonczona zerem."""
+    """Decode a NUL-terminated UTF-16LE array."""
     out = bytearray()
     for code in arr:
         if code == 0:
@@ -193,7 +193,7 @@ def _wrap_pi(a: float) -> float:
 
 
 class ACSharedMemory:
-    """Otwiera mapowania AC i produkuje gotowe ramki `Frame`."""
+    """Opens the AC mappings and produces ready-to-send `Frame` objects."""
 
     def __init__(self) -> None:
         self._maps: dict[str, mmap.mmap] = {}
@@ -201,12 +201,12 @@ class ACSharedMemory:
         self._last_packet_id = -1
         self._stale_reads = 0
 
-    # -- cykl zycia ----------------------------------------------------------
+    # -- lifecycle -----------------------------------------------------------
     def open(self) -> bool:
         if sys.platform != "win32":
             raise RuntimeError(
-                "Shared memory Assetto Corsa jest dostepne tylko na Windows. "
-                "Do testow bez gry uzyj trybu --demo."
+                "Assetto Corsa shared memory is Windows-only. "
+                "Use --demo to test without the game."
             )
         specs = (
             ("physics", "Local\\acpmf_physics", ctypes.sizeof(SPageFilePhysics)),
@@ -221,9 +221,9 @@ class ACSharedMemory:
             self.close()
             return False
 
-        # mmap z tagname tworzy mapowanie, jesli go nie ma - wiec samo
-        # otwarcie niczego nie dowodzi. Dopiero sensowne maxRpm znaczy,
-        # ze po drugiej stronie faktycznie siedzi AC.
+        # mmap with a tagname CREATES the mapping if it is missing, so a
+        # successful open proves nothing. Only a sane maxRpm means AC is
+        # really on the other side.
         st = self._read(SPageFileStatic, "static")
         if st.maxRpm <= 0:
             self.close()
@@ -246,7 +246,7 @@ class ACSharedMemory:
         buf.seek(0)
         return struct_cls.from_buffer_copy(buf.read(ctypes.sizeof(struct_cls)))
 
-    # -- odczyt --------------------------------------------------------------
+    # -- reading -------------------------------------------------------------
     def read(self) -> Frame | None:
         if not self.connected:
             return None
@@ -258,10 +258,10 @@ class ACSharedMemory:
             self.close()
             return None
 
-        # gra zamknieta -> packetId przestaje rosnac
+        # game closed -> packetId stops advancing
         if ph.packetId == self._last_packet_id:
             self._stale_reads += 1
-            if self._stale_reads > 600:  # ~10 s przy 60 Hz
+            if self._stale_reads > 600:  # ~10 s at 60 Hz
                 self.close()
                 return None
         else:
@@ -289,7 +289,7 @@ class ACSharedMemory:
         if ph.rpms >= max_rpm - 50:
             f.flags |= F_ENGINE_LIMITER
 
-        f.gear = int(ph.gear) - 1  # AC: 0=R, 1=N, 2=1 bieg
+        f.gear = int(ph.gear) - 1  # AC: 0=R, 1=N, 2=1st gear
         f.fuel_l = ph.fuel
         f.fuel_pct = int(round(100.0 * ph.fuel / st.maxFuel)) if st.maxFuel > 0 else 0
         f.tc_level = int(round(ph.tc * 10))
@@ -297,10 +297,10 @@ class ACSharedMemory:
 
         f.throttle = ph.gas
         f.brake = ph.brake
-        f.clutch = 1.0 - ph.clutch  # AC: 1.0 = sprzeglo puszczone
+        f.clutch = 1.0 - ph.clutch  # AC: 1.0 = clutch released
         f.steer = ph.steerAngle
 
-        # --- dane driftowe ---------------------------------------------------
+        # --- drift data ------------------------------------------------------
         f.drift_angle = self._drift_angle(ph)
         f.yaw_rate = math.degrees(ph.localAngularVel[1])
         f.g_lat = ph.accG[0]
@@ -335,19 +335,19 @@ class ACSharedMemory:
 
     @staticmethod
     def _drift_angle(ph) -> float:
-        """Kat poslizgu nadwozia w stopniach.
+        """Body slip angle in degrees.
 
-        Dodatni = wektor predkosci ucieka w prawo wzgledem osi auta,
-        czyli tyl wychodzi w prawo (kontra w lewo).
+        Positive = the velocity vector points to the right of the car's axis,
+        i.e. the rear is stepping out to the right.
         """
         vx, _vy, vz = ph.localVelocity
         if abs(vx) > 1e-4 or abs(vz) > 1e-4:
-            if math.hypot(vx, vz) < 0.8:  # stoimy - kat jest smieciem
+            if math.hypot(vx, vz) < 0.8:  # standing still - the angle is noise
                 return 0.0
             return math.degrees(math.atan2(vx, abs(vz)))
 
-        # Fallback dla buildow, ktore nie wypelniaja localVelocity:
-        # kierunek jazdy w swiecie minus heading auta.
+        # Fallback for builds that do not fill in localVelocity:
+        # world travel direction minus the car heading.
         wx, _wy, wz = ph.velocity
         if math.hypot(wx, wz) < 0.8:
             return 0.0
@@ -355,10 +355,10 @@ class ACSharedMemory:
 
     @staticmethod
     def _slip_angles(ph) -> list:
-        """Przyblizony kat poslizgu kazdego kola.
+        """Approximate per-wheel slip angle.
 
-        AC nie wystawia slip angle per kolo, wiec skalujemy wheelSlip
-        (ktore jest miara laczna) tak, zeby dalo sie z tego zrobic
-        czytelny wskaznik na ekranie. To wskaznik, nie pomiar.
+        AC does not expose a per-wheel slip angle, so we scale wheelSlip
+        (a combined measure) into something that reads well on screen.
+        This is an indicator, not a measurement.
         """
         return [min(90.0, s * 12.0) for s in ph.wheelSlip]

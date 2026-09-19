@@ -1,5 +1,5 @@
 {
-  "//": "M5Stack Tab5 (ESP32-P4NRW32). Platforma pioarduino nie ma jeszcze tej plytki, wiec trzymamy wlasna definicje w projekcie. Wyprowadzona z esp32-p4_r3-evboard, zmienione: 32 MB PSRAM i nazwa.",
+  "//": "M5Stack Tab5 (ESP32-P4NRW32). The pioarduino platform has no entry for this board yet, so the project carries its own. Derived from esp32-p4_r3-evboard; changed: 32 MB PSRAM and the name.",
   "build": {
     "core": "esp32",
     "extra_flags": [
@@ -23,7 +23,10 @@
   "debug": {
     "openocd_target": "esp32p4.cfg"
   },
-  "frameworks": ["arduino", "espidf"],
+  "frameworks": [
+    "arduino",
+    "espidf"
+  ],
   "name": "M5Stack Tab5 (ESP32-P4, 32MB PSRAM)",
   "upload": {
     "flash_size": "16MB",

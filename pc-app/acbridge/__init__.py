@@ -1,4 +1,4 @@
-"""Most telemetryczny Assetto Corsa -> M5Stack Tab5."""
+"""Assetto Corsa -> M5Stack Tab5 telemetry bridge."""
 
 from .protocol import PACKET_SIZE, VERSION, Frame
 
