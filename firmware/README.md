@@ -12,8 +12,9 @@ Then start the bridge on the PC (`../pc-app`). The same USB-C cable carries
 both the firmware upload and the telemetry.
 
 If the upload fails with `Failed to connect ... No serial data received`, put
-the board into download mode by hand: hold BOOT, tap RESET, release BOOT, and
-run the command again.
+the board into download mode by hand. The Tab5 has no separate BOOT button -
+hold RESET for about 2 seconds until the internal green LED starts blinking
+rapidly, release it, then run the command again.
 
 ## Why this configuration
 
