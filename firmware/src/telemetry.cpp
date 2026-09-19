@@ -35,6 +35,11 @@ void TelemetryLink::begin() {
   // USB CDC ignores the baud rate, but Serial.begin is still required.
   Serial.setRxBufferSize(8192);
   Serial.begin(921600);
+  // Never block the main loop on a USB write. The default timeout is 100 ms
+  // per write, and while nothing on the host reads our "hello" the TX buffer
+  // fills up - every announcement would then stall the loop, telemetry would
+  // stop being drained, and the bridge would hit write timeouts.
+  Serial.setTxTimeoutMs(0);
   last_hello_ms_ = 0;
 }
 
@@ -73,7 +78,31 @@ void TelemetryLink::update(DashState& st) {
   }
 
   if (got) st.last_rx_ms = now;
+  const bool was_linked = st.linked;
   st.linked = (st.last_rx_ms != 0) && (now - st.last_rx_ms < LINK_TIMEOUT_MS);
+
+  // Losing the link must wipe the last packet. The smoothed values decay to
+  // zero on their own, but everything drawn straight from st.p - g-forces,
+  // pedals, tyre temperatures, lap times - would otherwise sit frozen on the
+  // last reading and look like live data.
+  if (was_linked && !st.linked) {
+    // Wipe EVERY piece of displayed state, not a hand-picked list of fields.
+    // Auditing "which values need clearing" is exactly the kind of thing that
+    // rots as widgets get added - resetting the whole struct cannot miss one.
+    st.p = AcPacket{};
+    st.rpm_smooth = 0.0f;
+    st.speed_smooth = 0.0f;
+    st.drift_smooth = 0.0f;
+    st.yaw_smooth = 0.0f;
+    st.peak_angle = 0.0f;
+    st.peak_ms = 0;
+    for (int i = 0; i < DashState::TRACE_LEN; i++) st.trace[i] = 0.0f;
+    st.dropped = 0;
+    st.rx_hz = 0.0f;
+    have_seq_ = false;
+    parser_.reset();
+  }
+
   st.game_live = st.linked && (st.p.flags & F_LIVE);
 
   if (now - hz_window_start_ >= 1000) {
@@ -103,15 +132,25 @@ void TelemetryLink::update(DashState& st) {
     smooth(st.yaw_smooth, st.p.yaw_rate, 0.045f, dt);
   }
 
-  st.trace_head = (st.trace_head + 1) % DashState::TRACE_LEN;
-  st.trace[st.trace_head] = st.drift_smooth;
+  // Sample the history on a fixed time step, NOT once per update(): update()
+  // runs on every loop pass (hundreds of times a second), which would squeeze
+  // the whole trace into a fraction of a second.
+  static uint32_t last_trace_ms = 0;
+  if (now - last_trace_ms >= DashState::TRACE_INTERVAL_MS) {
+    last_trace_ms = now;
+    st.trace_head = (st.trace_head + 1) % DashState::TRACE_LEN;
+    st.trace[st.trace_head] = st.drift_smooth;
+  }
 
-  // Hold the peak angle for 4 s after the last significant deflection.
+  // Peak angle marker: two independent rules, deliberately not an if/else.
+  // Chaining them meant the expiry only ever got evaluated on frames where no
+  // new peak was set, so the marker could linger.
   const float mag = fabsf(st.drift_smooth);
   if (mag > 6.0f && mag > fabsf(st.peak_angle)) {
     st.peak_angle = st.drift_smooth;
     st.peak_ms = now;
-  } else if (now - st.peak_ms > 4000) {
+  }
+  if (st.peak_angle != 0.0f && now - st.peak_ms >= PEAK_HOLD_MS) {
     st.peak_angle = 0.0f;
   }
 }

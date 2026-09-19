@@ -33,10 +33,11 @@ class DriftPage : public Page {
 
   void enter() override {
     M5.Display.fillRect(0, 0, theme::W, theme::PAGE_H, theme::BG);
-    c_angle_ = c_yaw_ = c_steer_ = c_steer_angle_ = c_gx_ = c_gy_ = -1e9f;
+    c_angle_ = c_peak_ = c_yaw_ = c_steer_ = c_steer_angle_ = c_gx_ = c_gy_ = -1e9f;
     c_speed_ = -1e9f;
     c_gear_ = INT32_MIN;
     c_tyres_ = INT32_MIN;
+    c_trace_head_ = INT32_MIN;
     c_grip_ = -1e9f;
   }
 
@@ -54,7 +55,12 @@ class DriftPage : public Page {
  private:
   // --- main angle gauge ------------------------------------------------------
   void drawGauge(const DashState& st) {
-    if (!ui::changed(c_angle_, st.drift_smooth, 0.15f)) return;
+    // The peak marker has its own lifetime, so it has to take part in the
+    // change detection - otherwise it would expire while the car sits still
+    // and stay painted on screen until the angle happened to move again.
+    const bool dirty = ui::changed(c_angle_, st.drift_smooth, 0.15f) |
+                       ui::changed(c_peak_, st.peak_angle, 0.4f);
+    if (!dirty) return;
 
     Panel& p = gauge_;
     M5Canvas& c = p.c();
@@ -108,13 +114,13 @@ class DriftPage : public Page {
     c.setTextSize(1.6f);
     c.setTextDatum(textdatum_t::middle_center);
     c.setTextColor(theme::TEXT, theme::PANEL);
-    c.drawString(buf, cx, cy - 76);
+    c.drawString(buf, cx, cy - 88);   // 115 px wysokosci - musi byc wyzej niz podpis
 
     c.setFont(&fonts::DejaVu24);
     c.setTextSize(1.0f);
     c.setTextDatum(textdatum_t::middle_center);
     c.setTextColor(theme::TEXT_DIM, theme::PANEL);
-    c.drawString("degrees", cx, cy - 14);
+    c.drawString("degrees", cx, cy - 4);
 
     // Which way the rear went - faster to read than the sign of a number.
     if (fabsf(angle) > 3.0f) {
@@ -137,22 +143,42 @@ class DriftPage : public Page {
 
   // --- angle history ---------------------------------------------------------
   void drawTrace(const DashState& st) {
+    // A new sample lands every TRACE_INTERVAL_MS, so repainting this 540x204
+    // sprite on every frame would just burn framebuffer bandwidth.
+    if (!ui::changedInt(c_trace_head_, st.trace_head)) return;
+
     Panel& p = trace_;
     M5Canvas& c = p.c();
-    p.tile("HISTORY (~5 s)");
+    p.tile("HISTORY - SLIP ANGLE (deg)");
 
-    const int x0 = 14, y0 = 40;
-    const int w = p.w() - 28, h = p.h() - 54;
+    // A gutter on the left carries the scale, so the reader no longer has to
+    // guess the range or which way is which.
+    constexpr int kGutter = 48;
+    const int x0 = kGutter, y0 = 40;
+    const int w = p.w() - kGutter - 14, h = p.h() - 54;
     const int mid = y0 + h / 2;
     const float scale = (h / 2.0f) / kGaugeSpan;
 
-    // Grid: zero heavier, +-30 degrees thin.
+    // Grid every 30 degrees, zero heavier, each line labelled with its value.
+    c.setFont(&fonts::DejaVu9);
+    c.setTextSize(1.0f);
+    c.setTextDatum(textdatum_t::middle_right);
+    c.setTextColor(theme::TEXT_DIM, theme::PANEL);
     for (int g = -60; g <= 60; g += 30) {
-      if (g == 0) continue;
       const int y = mid - (int)(g * scale);
-      c.drawFastHLine(x0, y, w, theme::LINE);
+      c.drawFastHLine(x0, y, w, g == 0 ? theme::TEXT_DIM : theme::LINE);
+      char lbl[8];
+      snprintf(lbl, sizeof(lbl), "%d", g < 0 ? -g : g);
+      c.drawString(lbl, kGutter - 8, y);
     }
-    c.drawFastHLine(x0, mid, w, theme::TEXT_DIM);
+
+    // Which side is which - same colours the gauge uses.
+    c.setFont(&fonts::DejaVu12);
+    c.setTextDatum(textdatum_t::middle_left);
+    c.setTextColor(theme::ORANGE, theme::PANEL);
+    c.drawString("R", x0 + 4, y0 + 9);
+    c.setTextColor(theme::ACCENT, theme::PANEL);
+    c.drawString("L", x0 + 4, y0 + h - 9);
 
     const float dx = (float)w / (DashState::TRACE_LEN - 1);
     int prev_x = x0, prev_y = mid;
@@ -219,7 +245,10 @@ class DriftPage : public Page {
     const float angle = st.drift_smooth;
     const bool sliding = fabsf(angle) > 8.0f;
     const bool matching = (angle > 0.0f) == (st.p.steer > 0.0f);
-    const char* text = !sliding ? "-" : (matching ? "COUNTER OK" : "INTO SLIDE!");
+    // "INTO SLIDE" was ambiguous: "steer into the skid" is the textbook name
+    // for the CORRECT reaction, so the warning read like advice. Name the
+    // consequence instead.
+    const char* text = !sliding ? "-" : (matching ? "COUNTER OK" : "SPIN RISK!");
     const uint16_t color =
         !sliding ? theme::TEXT_DIM : (matching ? theme::GREEN : theme::RED);
 
@@ -396,9 +425,10 @@ class DriftPage : public Page {
   }
 
   Panel gauge_, trace_, head_, steer_, yaw_, gball_, tyres_, grip_;
-  float c_angle_ = -1e9f, c_yaw_ = -1e9f, c_steer_ = -1e9f, c_steer_angle_ = -1e9f;
+  float c_angle_ = -1e9f, c_peak_ = -1e9f, c_yaw_ = -1e9f, c_steer_ = -1e9f,
+        c_steer_angle_ = -1e9f;
   float c_gx_ = -1e9f, c_gy_ = -1e9f, c_speed_ = -1e9f, c_grip_ = -1e9f;
-  int32_t c_gear_ = INT32_MIN, c_tyres_ = INT32_MIN;
+  int32_t c_gear_ = INT32_MIN, c_tyres_ = INT32_MIN, c_trace_head_ = INT32_MIN;
 };
 
 DriftPage g_drift;

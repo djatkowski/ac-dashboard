@@ -291,28 +291,44 @@ class RacePage : public Page {
     M5Canvas& c = p.c();
     p.tile(nullptr);
 
-    const int barW = 300, barH = 26, x0 = 90;
-    ui::label(c, "THR", 16, 16);
-    ui::bar(c, x0, 18, barW, barH, st.p.throttle, theme::GREEN);
-    ui::label(c, "BRK", 16, 56);
-    ui::bar(c, x0, 58, barW, barH, st.p.brake, theme::RED);
+    // Two columns. The left one ends at x=480 (bars plus their percentages),
+    // the right one starts at x=520 - they used to overlap.
+    constexpr int kBarH = 26;
+    constexpr int kLeftBarX = 90, kLeftBarW = 290;   // 90..380
+    constexpr int kPctRight = 480;                   // percentages right-aligned here
+    constexpr int kRightLabelX = 520;
+    constexpr int kRightBarX = 620;
 
-    ui::label(c, "CLU", 430, 16);
-    ui::bar(c, 510, 18, 220, barH, st.p.clutch, theme::YELLOW);
+    // Both rows share one baseline: bars at y=18 and y=58, so their centres
+    // are at 31 and 71. Captions and percentages hang off those same numbers
+    // instead of being positioned by eye.
+    constexpr int kRow1 = 18, kRow2 = 58;
+    constexpr int kMid1 = kRow1 + kBarH / 2;   // 31
+    constexpr int kMid2 = kRow2 + kBarH / 2;   // 71
 
-    ui::label(c, "STEERING", 430, 56);
-    ui::centerBar(c, 590, 58, 480, barH, st.p.steer, theme::ACCENT);
+    ui::labelMid(c, "THR", 16, kMid1);
+    ui::bar(c, kLeftBarX, kRow1, kLeftBarW, kBarH, st.p.throttle, theme::GREEN);
+    ui::labelMid(c, "BRK", 16, kMid2);
+    ui::bar(c, kLeftBarX, kRow2, kLeftBarW, kBarH, st.p.brake, theme::RED);
+
+    ui::labelMid(c, "CLU", kRightLabelX, kMid1);
+    ui::bar(c, kRightBarX, kRow1, 200, kBarH, st.p.clutch, theme::YELLOW);
+
+    ui::labelMid(c, "STEERING", kRightLabelX, kMid2);
+    ui::centerBar(c, kRightBarX, kRow2, p.w() - kRightBarX - 18, kBarH, st.p.steer,
+                  theme::ACCENT);
 
     // Throttle/brake as numbers - useful when analysing corner entry.
     char buf[16];
-    snprintf(buf, sizeof(buf), "%3d%%", (int)(st.p.throttle * 100));
     c.setFont(&fonts::DejaVu24);
-    c.setTextDatum(textdatum_t::middle_left);
+    c.setTextSize(1.0f);
+    c.setTextDatum(textdatum_t::middle_right);
+    snprintf(buf, sizeof(buf), "%d%%", (int)(st.p.throttle * 100));
     c.setTextColor(theme::GREEN, theme::PANEL);
-    c.drawString(buf, x0 + barW + 12, 31);
-    snprintf(buf, sizeof(buf), "%3d%%", (int)(st.p.brake * 100));
+    c.drawString(buf, kPctRight, kMid1);
+    snprintf(buf, sizeof(buf), "%d%%", (int)(st.p.brake * 100));
     c.setTextColor(theme::RED, theme::PANEL);
-    c.drawString(buf, x0 + barW + 12, 71);
+    c.drawString(buf, kPctRight, kMid2);
     p.push();
   }
 

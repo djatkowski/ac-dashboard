@@ -11,10 +11,29 @@ pio run -t upload
 Then start the bridge on the PC (`../pc-app`). The same USB-C cable carries
 both the firmware upload and the telemetry.
 
-If the upload fails with `Failed to connect ... No serial data received`, put
-the board into download mode by hand. The Tab5 has no separate BOOT button -
-hold RESET for about 2 seconds until the internal green LED starts blinking
-rapidly, release it, then run the command again.
+### Two things that will cost you an afternoon otherwise
+
+**Flash the merged image at `0x0`, not `0x2000`.** `firmware.factory.bin`
+already contains the padding from address zero, so writing it at the
+bootloader offset shifts everything by 8 KB and the ROM answers with
+`invalid header: 0xffffffff` forever.
+
+**On a Mac, go through a USB hub.** Connected straight to a MacBook's USB-C
+port the data comes back corrupted - `Invalid head of packet`, truncated
+streams, stub uploads that never finish. The same cable and the same board
+flash first time through a hub. Once behind a hub, `--before usb_reset`
+works too, so no button press is needed:
+
+```bash
+esptool.py --chip esp32p4 --port /dev/cu.usbmodemXXXX \
+  --before usb_reset --after hard_reset \
+  write_flash --flash_size 16MB --flash_mode qio --flash_freq 80m \
+  0x0 .pio/build/tab5/firmware.factory.bin
+```
+
+If a connection attempt still fails, put the board into download mode by hand.
+The Tab5 has no separate BOOT button - hold RESET for about 2 seconds until
+the internal green LED blinks rapidly, release, then retry.
 
 ## Why this configuration
 
@@ -29,6 +48,12 @@ carries its own: `boards/m5stack_tab5.json`. It is derived from
 
 **Libraries.** M5Unified 0.2.22 is the first release that knows about the
 Tab5 (`board_M5Tab5`). Older ones will not detect the display.
+
+**Silicon revision.** The board definition pins `chip_variant` to
+`esp32p4_es` at 360 MHz. Tab5 units report as `esp32p4-eco2`, i.e. pre
+rev.300, and the framework ships different prebuilt libraries per variant -
+building as the rev.301 part produces an image that panics with an illegal
+instruction on its very first instruction.
 
 The versions in `platformio.ini` are pinned deliberately. If you bump them,
 check that the board is still detected.

@@ -48,8 +48,12 @@ void arcSegment(M5Canvas& c, int cx, int cy, int r0, int r1, float a0_deg,
 void centerText(M5Canvas& c, const char* s, int x, int y, const lgfx::IFont* font,
                 float size, uint16_t color);
 
-// Small dimmed caption.
+// Small dimmed caption (y = top edge).
 void label(M5Canvas& c, const char* s, int x, int y, uint16_t color = theme::TEXT_DIM);
+
+// Same, but vertically centred on y - use it to line a caption up with a bar.
+void labelMid(M5Canvas& c, const char* s, int x, int y_center,
+              uint16_t color = theme::TEXT_DIM);
 
 // Tyre colour from core temperature (optimal window is roughly 80-95 C).
 uint16_t tyreColor(float temp_c);

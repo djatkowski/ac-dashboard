@@ -280,7 +280,9 @@ class ACSharedMemory:
         f.flags |= F_ABS_ACTIVE if ph.abs > 0.02 else 0
         f.flags |= F_TC_ACTIVE if ph.tc > 0.02 else 0
         f.flags |= F_DRS if ph.drsEnabled else 0
-        f.flags |= F_VALID_LAP if gr.numberOfLaps >= 0 else 0
+        # AC1's SPageFileGraphic has no lap-validity field, so we key this off
+        # wheels off track instead of inventing one.
+        f.flags |= F_VALID_LAP if ph.numberOfTyresOut == 0 else 0
 
         max_rpm = float(st.maxRpm) if st.maxRpm > 0 else 8000.0
         f.speed_kmh = ph.speedKmh

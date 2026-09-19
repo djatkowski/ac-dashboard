@@ -19,8 +19,11 @@ struct DashState {
   float drift_smooth = 0.0f;
   float yaw_smooth = 0.0f;
 
-  // Drift angle history for the scrolling trace (~5 s at 45 fps).
+  // Drift angle history for the scrolling trace.
+  // TRACE_LEN samples every TRACE_INTERVAL_MS => 220 * 25 ms = 5.5 s,
+  // independent of how fast the main loop happens to run.
   static constexpr int TRACE_LEN = 220;
+  static constexpr uint32_t TRACE_INTERVAL_MS = 25;
   float trace[TRACE_LEN] = {0};
   int trace_head = 0;
 

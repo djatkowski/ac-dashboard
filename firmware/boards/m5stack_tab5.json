@@ -1,5 +1,5 @@
 {
-  "//": "M5Stack Tab5 (ESP32-P4NRW32). The pioarduino platform has no entry for this board yet, so the project carries its own. Derived from esp32-p4_r3-evboard; changed: 32 MB PSRAM and the name.",
+  "//": "M5Stack Tab5 (ESP32-P4NRW32). The pioarduino platform has no entry for this board, so the project carries its own. The chip reports as esp32p4-eco2 (pre rev.300), so it needs the esp32p4_es variant and 360 MHz - the r3/400 MHz build panics with an illegal instruction at the app entry point.",
   "build": {
     "core": "esp32",
     "extra_flags": [
@@ -8,12 +8,12 @@
       "-DBOARD_HAS_PSRAM",
       "-DARDUINO_M5STACK_TAB5"
     ],
-    "f_cpu": "400000000L",
+    "f_cpu": "360000000L",
     "f_flash": "80000000L",
     "f_psram": "200000000L",
     "flash_mode": "qio",
     "mcu": "esp32p4",
-    "chip_variant": "esp32p4",
+    "chip_variant": "esp32p4_es",
     "variant": "esp32p4"
   },
   "arduino": {

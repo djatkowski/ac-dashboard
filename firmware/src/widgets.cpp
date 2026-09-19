@@ -107,6 +107,14 @@ void label(M5Canvas& c, const char* s, int x, int y, uint16_t color) {
   c.drawString(s, x, y);
 }
 
+void labelMid(M5Canvas& c, const char* s, int x, int y_center, uint16_t color) {
+  c.setFont(&fonts::DejaVu18);
+  c.setTextSize(1.0f);
+  c.setTextDatum(textdatum_t::middle_left);
+  c.setTextColor(color);
+  c.drawString(s, x, y_center);
+}
+
 uint16_t tyreColor(float temp_c) {
   // Working window of a typical road / semi-slick tyre: ~80-95 C.
   // Below 60 it is cold, above 110 it is overheating.

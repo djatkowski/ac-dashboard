@@ -24,3 +24,6 @@
 
 // Full-scale deflection of the drift angle gauge (degrees)
 #define DRIFT_GAUGE_MAX 70.0f
+
+// How long the peak-angle marker stays on the gauge after the last new peak
+#define PEAK_HOLD_MS 5000

@@ -105,6 +105,8 @@ class SerialLink:
         self.ser: serial.Serial | None = None
         self.seq = 0
         self.frames_sent = 0
+        self.dropped_frames = 0
+        self.timeouts = 0
         self._next_retry = 0.0
         # The search repeats every 2 s. Report the full scan only the first
         # time, so we do not flood the console with the same lines forever.
@@ -162,10 +164,28 @@ class SerialLink:
         payload = frame.frame(self.seq)
         self.seq = (self.seq + 1) & 0xFFFF
         try:
+            # Drain whatever the Tab5 printed (its "hello" line). If nobody
+            # reads it, the device's TX buffer fills and its writes start
+            # blocking, which stalls its main loop and stops it reading us.
+            waiting = self.ser.in_waiting
+            if waiting:
+                self.ser.read(waiting)
             self.ser.write(payload)
             self.frames_sent += 1
+            self.timeouts = 0
             return True
-        except (OSError, serial.SerialException, serial.SerialTimeoutException) as exc:
+        except serial.SerialTimeoutException:
+            # A write timeout means the device was busy for a moment, NOT that
+            # it went away. Closing the port here would be actively harmful:
+            # re-opening it resets the ESP32, so reconnecting on every hiccup
+            # put the board in a reboot loop. Drop the frame and move on -
+            # at 60 Hz the next one is 16 ms away anyway.
+            self.timeouts += 1
+            self.dropped_frames += 1
+            if self.verbose and self.timeouts == 20:
+                print("[!] Tab5 is not keeping up - dropping frames. Try a lower --rate.")
+            return False
+        except (OSError, serial.SerialException) as exc:
             if self.verbose:
                 print(f"[-] Lost the Tab5 ({exc}). Waiting for it to come back.")
             self.close()
