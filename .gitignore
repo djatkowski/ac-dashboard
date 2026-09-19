@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pio/
+.vscode/
+.DS_Store
+build/
+dist/
+*.exe

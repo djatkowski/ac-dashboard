@@ -1,0 +1,45 @@
+# Buduje ac_bridge.exe na prawdziwym Windows.
+# PyInstaller nie kompiluje skrosnie, wiec to jedyny sposob, zeby dostac
+# plik dla Windows, nie majac Windows pod reka.
+#
+# Po przejsciu workflow: zakladka Actions -> wybierz przebieg -> Artifacts.
+name: build-exe
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:   # pozwala odpalic recznie z zakladki Actions
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalacja zaleznosci
+        working-directory: pc-app
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Test protokolu
+        working-directory: pc-app
+        run: python acbridge/protocol.py
+
+      - name: Budowanie
+        working-directory: pc-app
+        run: python -m PyInstaller --clean --noconfirm ac_bridge.spec
+
+      - name: Czy .exe w ogole startuje
+        working-directory: pc-app
+        run: ./dist/ac_bridge.exe --list-ports
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ac_bridge-windows
+          path: pc-app/dist/ac_bridge.exe
+          if-no-files-found: error
