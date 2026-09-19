@@ -7,6 +7,7 @@ name: we open candidates one by one and listen for who answers.
 
 from __future__ import annotations
 
+import sys
 import time
 
 try:
@@ -25,13 +26,83 @@ ESPRESSIF_VID = 0x303A
 PROBE_TIMEOUT = 1.5  # seconds spent listening for "hello" on one port
 
 
+class _PlainPort:
+    """A port found outside pyserial's enumeration, so without USB metadata."""
+
+    def __init__(self, device: str, source: str) -> None:
+        self.device = device
+        self.vid = None
+        self.pid = None
+        self.description = f"(found via {source})"
+
+
+def _registry_ports() -> list:
+    """Windows: read the serial ports straight out of the registry.
+
+    pyserial enumerates through SetupAPI, which can come back empty depending
+    on the session the process runs in - a device that PowerShell happily
+    lists as COM3 is then invisible. HKLM\\HARDWARE\\DEVICEMAP\\SERIALCOMM does
+    not have that problem.
+    """
+    try:
+        import winreg
+    except ImportError:
+        return []
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                             r"HARDWARE\DEVICEMAP\SERIALCOMM")
+    except OSError:
+        return []
+    found = []
+    try:
+        i = 0
+        while True:
+            try:
+                _name, value, _kind = winreg.EnumValue(key, i)
+            except OSError:
+                break
+            if value:
+                found.append(str(value))
+            i += 1
+    finally:
+        key.Close()
+    return found
+
+
+def _device_node_ports() -> list:
+    """macOS/Linux: fall back to the device nodes themselves."""
+    import glob
+    found = []
+    for pattern in ("/dev/cu.usbmodem*", "/dev/cu.usbserial*",
+                    "/dev/ttyACM*", "/dev/ttyUSB*"):
+        found.extend(glob.glob(pattern))
+    return found
+
+
 def list_candidates() -> list:
-    """Serial ports, most likely one first."""
+    """Serial ports, most likely one first.
+
+    Enumeration is deliberately belt-and-braces: a port missed here means the
+    user has to discover it themselves and pass --port, which is exactly the
+    manual step this is supposed to remove.
+    """
     ports = list(list_ports.comports())
-    # Drop the obvious non-candidates: on macOS every port has a /dev/tty.*
-    # twin whose open() can block waiting for carrier detect. Prefer /dev/cu.*.
+    seen = {p.device for p in ports}
+
+    extra = _registry_ports() if sys.platform == "win32" else _device_node_ports()
+    for device in extra:
+        if device not in seen:
+            seen.add(device)
+            ports.append(_PlainPort(device, "registry" if sys.platform == "win32"
+                                    else "device node"))
+
+    # On macOS every port has a /dev/tty.* twin whose open() can block waiting
+    # for carrier detect. Prefer /dev/cu.*.
     ports = [p for p in ports if not p.device.startswith("/dev/tty.")]
-    ports.sort(key=lambda p: (p.vid != ESPRESSIF_VID, p.device))
+    # Espressif VID first, then anything that looks like a USB serial device.
+    ports.sort(key=lambda p: (p.vid != ESPRESSIF_VID,
+                              "usbmodem" not in p.device and "COM" not in p.device,
+                              p.device))
     return ports
 
 
