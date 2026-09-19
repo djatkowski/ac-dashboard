@@ -41,10 +41,34 @@ def describe(port) -> str:
     return f"{port.device}  [{vid}:{pid}]  {port.description}"
 
 
+def _open(device: str, timeout: float, write_timeout: float | None = None) -> serial.Serial:
+    """Open a port WITHOUT resetting the board.
+
+    pyserial asserts DTR and RTS on open by default. The ESP32 USB Serial/JTAG
+    peripheral reads those control lines as a reset request - it is the very
+    mechanism esptool uses to drop the chip into its bootloader. Leaving the
+    default in place makes the Tab5 reboot on every open, and with autodetect
+    retrying every 2 s that means a reboot loop.
+
+    Setting the flags before open() records them, so they are applied as the
+    port comes up rather than toggled afterwards.
+    """
+    ser = serial.Serial()
+    ser.port = device
+    ser.baudrate = BAUD
+    ser.timeout = timeout
+    if write_timeout is not None:
+        ser.write_timeout = write_timeout
+    ser.dtr = False
+    ser.rts = False
+    ser.open()
+    return ser
+
+
 def probe(device: str) -> bool:
     """Is our dashboard sitting on this port?"""
     try:
-        with serial.Serial(device, BAUD, timeout=0.2) as ser:
+        with _open(device, timeout=0.2) as ser:
             ser.reset_input_buffer()
             deadline = time.monotonic() + PROBE_TIMEOUT
             buf = bytearray()
@@ -114,7 +138,7 @@ class SerialLink:
         try:
             # write_timeout keeps the loop from hanging if the Tab5 stops
             # reading (a crash, or a reset mid-write).
-            self.ser = serial.Serial(device, BAUD, timeout=0.05, write_timeout=0.5)
+            self.ser = _open(device, timeout=0.05, write_timeout=0.5)
             self.ser.reset_input_buffer()
             if not self.fixed:
                 self.device = device

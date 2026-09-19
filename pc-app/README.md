@@ -49,6 +49,33 @@ opens serial ports one at a time (starting with those carrying Espressif's
 VID, `0x303A`) and listens 1.5 s for that keyword. That is why `--port` is
 usually unnecessary.
 
+## Troubleshooting
+
+**The Tab5 reboots over and over while the bridge runs.**
+Opening a serial port asserts DTR and RTS by default, and the ESP32 USB
+Serial/JTAG peripheral reads those lines as a reset request - the same
+mechanism esptool uses to enter the bootloader. With autodetection retrying
+every 2 s that becomes a reboot loop. The bridge clears both lines before
+opening (see `_open()` in `serial_link.py`), so this should not happen here;
+if you write your own tool against this port, do the same.
+
+**The port is invisible on macOS and a VM is running.**
+Parallels and VMware can claim a USB device for the guest the moment it
+enumerates, which also happens after every board reset. macOS then shows the
+device in `ioreg` but publishes no serial node. Check with:
+
+```bash
+ioreg -p IOUSB -l -w 0 | grep UsbExclusiveOwner
+```
+
+If a VM process owns it, detach the device from the guest (Devices -> USB &
+Bluetooth) or run the bridge inside the VM instead - which is often what you
+want anyway, since AC runs on Windows.
+
+**`--list-ports` shows nothing on macOS.**
+Approve the accessory when macOS asks. Without that the device enumerates but
+never gets configured.
+
 ## Data format
 
 `acbridge/protocol.py` is the single source of truth for the byte layout.
